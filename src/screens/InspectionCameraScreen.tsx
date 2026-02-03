@@ -14,14 +14,16 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
     const [ghostImage, setGhostImage] = useState<string | null>(null);
     const [isCapturing, setIsCapturing] = useState(false);
 
+    const isDefect = angle.startsWith('DEFECT_');
+
     useEffect(() => {
         (async () => {
             const status = await Camera.requestCameraPermission();
             setPermission(status);
             if (status !== 'granted') return;
 
-            // Try to fetch the "Ghost" image safely
-            if (vin && vin.trim() !== '') {
+            // Only fetch "Ghost" image for standard angles, not defects
+            if (!isDefect && vin && vin.trim() !== '') {
                 try {
                     console.log(`Fetching ghost for VIN: ${vin}, Angle: ${angle}`);
                     const latest = await photoService.getLatestPhotoByAngle(vin, angle);
@@ -33,7 +35,7 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
                 }
             }
         })();
-    }, [vin, angle]);
+    }, [vin, angle, isDefect]);
 
     const takePhoto = async () => {
         if (!camera.current) {
@@ -70,7 +72,7 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
                 );
 
                 console.log("Photo saved successfully.");
-                Alert.alert("Success", "Photo saved.", [
+                Alert.alert("Success", isDefect ? "Defect photo saved." : "Inspection photo saved.", [
                     { text: "OK", onPress: () => navigation.goBack() }
                 ]);
             } catch (serviceErr: any) {
@@ -115,8 +117,8 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
                 />
             )}
 
-            {/* Ghost Overlay - Hide when capturing */}
-            {ghostImage && !isCapturing && (
+            {/* Ghost Overlay - Hide when capturing OR if it's a defect photo */}
+            {!isDefect && ghostImage && !isCapturing && (
                 <View style={styles.ghostContainer} pointerEvents="none">
                     <Image source={{ uri: ghostImage }} style={styles.ghostImage} />
                     <View style={styles.ghostLabel}>
@@ -129,7 +131,7 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
             {isCapturing && (
                 <View style={styles.busyOverlay}>
                     <ActivityIndicator size="large" color="#ff3b30" />
-                    <Text style={styles.busyText}>Saving Inspection Photo...</Text>
+                    <Text style={styles.busyText}>{isDefect ? 'Saving Defect Evidence...' : 'Saving Inspection Photo...'}</Text>
                 </View>
             )}
 

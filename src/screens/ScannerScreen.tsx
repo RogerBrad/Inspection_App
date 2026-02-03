@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { Camera, useCameraDevice, useCodeScanner, CameraPermissionStatus } from 'react-native-vision-camera';
+import { Slider } from '@miblanchard/react-native-slider';
 
 const ScannerScreen = ({ navigation }: any) => {
     // Some devices have multiple back cameras (wide, telephoto), 
@@ -9,6 +10,8 @@ const ScannerScreen = ({ navigation }: any) => {
     const isFocused = useIsFocused();
     const device = useCameraDevice('back');
     const [permission, setPermission] = useState<CameraPermissionStatus>('not-determined');
+    const [torch, setTorch] = useState<'off' | 'on'>('off');
+    const [exposure, setExposure] = useState(0);
 
     useEffect(() => {
         (async () => {
@@ -19,10 +22,17 @@ const ScannerScreen = ({ navigation }: any) => {
     }, []);
 
     const codeScanner = useCodeScanner({
-        codeTypes: ['pdf-417'],
+        codeTypes: ['pdf-417', 'code-128', 'ean-13', 'qr'],
         onCodeScanned: (codes) => {
             if (codes.length > 0 && codes[0].value) {
-                navigation.navigate('Details', { data: codes[0].value });
+                const scannedType = codes[0].type;
+                const assetCategory = scannedType === 'pdf-417' ? 'motor_vehicle' : 'refrigeration';
+
+                navigation.navigate('Details', {
+                    data: codes[0].value,
+                    scannedType: scannedType,
+                    assetCategory: assetCategory
+                });
             }
         }
     });
@@ -46,10 +56,42 @@ const ScannerScreen = ({ navigation }: any) => {
                 device={device}
                 isActive={isFocused}
                 codeScanner={codeScanner}
+                torch={torch}
+                exposure={exposure}
             />
+
             <View style={styles.overlay}>
-                <Text style={styles.scanText}>Position PDF417 Barcode within frame</Text>
-                <View style={styles.guideBox} />
+                <View style={styles.topControls}>
+                    <TouchableOpacity
+                        style={[styles.torchBtn, torch === 'on' && styles.torchBtnActive]}
+                        onPress={() => setTorch(t => t === 'on' ? 'off' : 'on')}
+                    >
+                        <Text style={styles.torchIcon}>{torch === 'on' ? '🔦' : '💡'}</Text>
+                        <Text style={styles.torchText}>{torch === 'on' ? 'LIGHT ON' : 'TURN LIGHT ON'}</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <View style={styles.scanGuidance}>
+                    <Text style={styles.scanText}>Position Barcode within frame</Text>
+                    <Text style={styles.subScanText}>PDF417 for Vehicles | Standard for Units</Text>
+                    <View style={styles.guideBox} />
+                </View>
+
+                <View style={styles.bottomControls}>
+                    <View style={styles.sliderContainer}>
+                        <Text style={styles.sliderLabel}>Brightness / Exposure</Text>
+                        <Slider
+                            value={exposure}
+                            minimumValue={-2}
+                            maximumValue={2}
+                            step={0.1}
+                            onValueChange={(val: any) => setExposure(val[0])}
+                            thumbStyle={styles.thumb}
+                            trackStyle={styles.track}
+                            minimumTrackTintColor="#3b82f6"
+                        />
+                    </View>
+                </View>
             </View>
         </View>
     );
@@ -67,21 +109,61 @@ const styles = StyleSheet.create({
         fontSize: 18,
     },
     overlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        justifyContent: 'center',
+        ...StyleSheet.absoluteFillObject,
+        justifyContent: 'space-between',
+        paddingVertical: 50,
+        paddingHorizontal: 20,
+    },
+    topControls: {
+        width: '100%',
+        alignItems: 'flex-end',
+    },
+    torchBtn: {
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        flexDirection: 'row',
         alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 15,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.3)',
+    },
+    torchBtnActive: {
+        backgroundColor: '#3b82f6',
+        borderColor: '#fff',
+    },
+    torchIcon: {
+        fontSize: 18,
+        marginRight: 10,
+    },
+    torchText: {
+        color: 'white',
+        fontWeight: '900',
+        fontSize: 12,
+    },
+    scanGuidance: {
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     scanText: {
         color: 'white',
         fontSize: 16,
+        fontWeight: 'bold',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        paddingHorizontal: 15,
+        paddingTop: 10,
+        borderTopLeftRadius: 10,
+        borderTopRightRadius: 10,
+    },
+    subScanText: {
+        color: '#00ff00',
+        fontSize: 12,
         marginBottom: 20,
         backgroundColor: 'rgba(0,0,0,0.5)',
-        padding: 10,
-        borderRadius: 5,
+        paddingHorizontal: 15,
+        paddingBottom: 10,
+        borderBottomLeftRadius: 10,
+        borderBottomRightRadius: 10,
     },
     guideBox: {
         width: 300,
@@ -90,6 +172,37 @@ const styles = StyleSheet.create({
         borderColor: '#00ff00',
         backgroundColor: 'transparent',
         borderRadius: 10,
+    },
+    bottomControls: {
+        width: '100%',
+        alignItems: 'center',
+    },
+    sliderContainer: {
+        width: '80%',
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        padding: 15,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)',
+    },
+    sliderLabel: {
+        color: 'white',
+        fontSize: 12,
+        fontWeight: '800',
+        marginBottom: 5,
+        textAlign: 'center',
+    },
+    thumb: {
+        width: 24,
+        height: 24,
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        borderWidth: 3,
+        borderColor: '#3b82f6',
+    },
+    track: {
+        height: 4,
+        borderRadius: 2,
     },
 });
 

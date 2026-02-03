@@ -5,6 +5,7 @@ import ScannerScreen from './screens/ScannerScreen';
 import DetailsScreen from './screens/DetailsScreen';
 import PhotoComparisonScreen from './screens/PhotoComparisonScreen';
 import InspectionCameraScreen from './screens/InspectionCameraScreen';
+import HistoryScreen from './screens/HistoryScreen';
 
 const Stack = createStackNavigator();
 
@@ -30,6 +31,11 @@ const AppNavigator = () => {
                 <Stack.Screen
                     name="InspectionCamera"
                     component={InspectionCameraScreen}
+                    options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                    name="History"
+                    component={HistoryScreen}
                     options={{ headerShown: false }}
                 />
             </Stack.Navigator>
