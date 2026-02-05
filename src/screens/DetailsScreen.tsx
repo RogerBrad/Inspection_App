@@ -3,9 +3,10 @@ import { StyleSheet, Text, View, ScrollView, TouchableOpacity, StatusBar, Activi
 import { useIsFocused } from '@react-navigation/native';
 import { photoService, VehiclePhoto } from '../services/photoService';
 import { inspectionService, InspectionConfig, InspectionType } from '../services/inspectionService';
+import { rentalAgreementService } from '../services/rentalAgreementService';
 
 const DetailsScreen = ({ route, navigation }: any) => {
-    const { data, assetCategory = 'motor_vehicle' } = route.params;
+    const { data, assetCategory = 'motor_vehicle', agreement } = route.params;
 
     // UI State
     const [config, setConfig] = useState<InspectionConfig | null>(null);
@@ -158,22 +159,79 @@ const DetailsScreen = ({ route, navigation }: any) => {
                 return;
             }
 
-            await inspectionService.saveInspection({
+            // Require odometer for vehicle inspections
+            if (isVehicle && !odometer) {
+                Alert.alert("Odometer Required", "Please enter the odometer reading before saving.");
+                setIsSaving(false);
+                return;
+            }
+
+            // Determine overall pass/fail
+            const overallPassed = failCount === 0;
+            const inspectionNotes = `${passCount} items passed, ${failCount} items failed. ${selectedType.label} completed via mobile app.`;
+
+            // Build inspection record (only include odometer if it has a value)
+            const inspectionRecord: any = {
                 assetId: vin,
                 assetCategory: assetCategory,
                 inspectionTypeId: selectedType.id,
                 inspectionTypeLabel: selectedType.label,
                 results: results,
-                odometer: isVehicle ? odometer : undefined,
                 summary: { passCount, failCount }
-            });
+            };
 
-            Alert.alert("Success", "Inspection saved successfully.", [
-                { text: "OK", onPress: () => navigation.navigate('Scanner') }
-            ]);
+            // Only add odometer if it's a vehicle AND has a value
+            if (isVehicle && odometer) {
+                inspectionRecord.odometer = odometer;
+            }
+
+            // Save to Firestore (inspection history)
+            await inspectionService.saveInspection(inspectionRecord);
+
+            // Update Rental Agreement Workflow (if agreement exists)
+            if (agreement && agreement.id) {
+                const updateResult = await rentalAgreementService.updateInspectionResult(
+                    agreement.id,
+                    overallPassed,
+                    inspectionNotes,
+                    results
+                );
+
+                if (!updateResult.success) {
+                    console.error('Failed to update workflow:', updateResult.error);
+                    Alert.alert(
+                        "Warning",
+                        "Inspection saved locally, but failed to update the main system. Please contact support.",
+                        [{ text: "OK", onPress: () => navigation.navigate('Scanner') }]
+                    );
+                    return;
+                }
+            }
+
+            // Show success confirmation
+            Alert.alert(
+                overallPassed ? "✅ Inspection Passed" : "⚠️ Inspection Failed",
+                agreement
+                    ? `The inspection has been completed and the database has been updated.\n\n` +
+                    `Result: ${overallPassed ? 'PASSED' : 'FAILED'}\n` +
+                    `${passCount} items passed\n` +
+                    `${failCount} items failed\n\n` +
+                    `The office will be notified of this ${overallPassed ? 'successful' : 'failed'} inspection.`
+                    : `Inspection saved successfully.\n\n` +
+                    `Result: ${overallPassed ? 'PASSED' : 'FAILED'}\n` +
+                    `${passCount} items passed\n` +
+                    `${failCount} items failed`,
+                [
+                    { text: "OK", onPress: () => navigation.navigate('Scanner') }
+                ]
+            );
         } catch (error) {
             console.error("Save failed:", error);
-            Alert.alert("Error", "Could not save inspection.");
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            Alert.alert(
+                "Error",
+                `Could not save inspection. ${errorMessage}\n\nPlease try again or contact support if the problem persists.`
+            );
         } finally {
             setIsSaving(false);
         }

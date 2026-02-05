@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
     apiKey: "AIzaSyA8QZv5ridNnpnV4Y9-xsMZi4d8RJVLyFY",
@@ -18,5 +19,8 @@ const app = initializeApp(firebaseConfig);
 export const db = initializeFirestore(app, {
     experimentalForceLongPolling: true
 });
+
+// Initialize Realtime Database for rental agreements
+export const realtimeDb = getDatabase(app);
 
 export const storage = getStorage(app);

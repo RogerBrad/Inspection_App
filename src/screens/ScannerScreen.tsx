@@ -1,8 +1,13 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { StyleSheet, Text, View, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { Camera, useCameraDevice, useCodeScanner, useCameraPermission, useCameraDevices } from 'react-native-vision-camera';
 import { Slider } from '@miblanchard/react-native-slider';
+import { rentalAgreementService } from '../services/rentalAgreementService';
+
+// Note: User authentication is not currently implemented
+// Any technician can scan any inspection that has "Allocated" status
+const CURRENT_USER_ID = 'USER_001'; // Placeholder for future auth implementation
 
 const ScannerScreen = ({ navigation }: any) => {
     // Some devices have multiple back cameras (wide, telephoto), 
@@ -19,6 +24,7 @@ const ScannerScreen = ({ navigation }: any) => {
 
     const [torch, setTorch] = useState<'off' | 'on'>('off');
     const [exposure, setExposure] = useState(0);
+    const [isValidating, setIsValidating] = useState(false);
 
     useEffect(() => {
         if (!hasPermission) {
@@ -28,16 +34,59 @@ const ScannerScreen = ({ navigation }: any) => {
 
     const codeScanner = useCodeScanner({
         codeTypes: ['pdf-417', 'code-128', 'ean-13', 'qr'],
-        onCodeScanned: (codes) => {
-            if (isFocused && codes.length > 0 && codes[0].value) {
+        onCodeScanned: async (codes) => {
+            if (isFocused && codes.length > 0 && codes[0].value && !isValidating) {
+                setIsValidating(true);
+                const scannedValue = codes[0].value;
                 const scannedType = codes[0].type;
                 const assetCategory = scannedType === 'pdf-417' ? 'motor_vehicle' : 'refrigeration';
 
-                navigation.navigate('Details', {
-                    data: codes[0].value,
-                    scannedType: scannedType,
-                    assetCategory: assetCategory
-                });
+                try {
+                    // Validate against rental agreements
+                    console.log('=== BARCODE SCAN DEBUG ===');
+                    console.log('Raw scanned value:', scannedValue);
+                    console.log('Barcode type:', scannedType);
+                    console.log('Current user ID:', CURRENT_USER_ID);
+
+                    const validation = await rentalAgreementService.validateAndGetAgreement(
+                        scannedValue,
+                        CURRENT_USER_ID
+                    );
+
+                    console.log('Validation result:', validation);
+
+                    if (!validation.valid) {
+                        // Show error alert with scanned barcode
+                        Alert.alert(
+                            'Inspection Not Available',
+                            `Scanned: "${scannedValue}"\n\n${validation.error || 'This asset cannot be inspected at this time.'}`,
+                            [
+                                {
+                                    text: 'OK',
+                                    onPress: () => setIsValidating(false)
+                                }
+                            ]
+                        );
+                        return;
+                    }
+
+                    // Valid - proceed to details screen
+                    navigation.navigate('Details', {
+                        data: scannedValue,
+                        scannedType: scannedType,
+                        assetCategory: assetCategory,
+                        agreement: validation.agreement
+                    });
+
+                    setIsValidating(false);
+                } catch (error) {
+                    console.error('Validation error:', error);
+                    Alert.alert(
+                        'Error',
+                        'Failed to validate barcode. Please try again.',
+                        [{ text: 'OK', onPress: () => setIsValidating(false) }]
+                    );
+                }
             }
         }
     });
@@ -70,6 +119,13 @@ const ScannerScreen = ({ navigation }: any) => {
             <View style={styles.overlay}>
                 <View style={styles.topControls}>
                     <TouchableOpacity
+                        style={styles.debugBtn}
+                        onPress={() => navigation.navigate('Debug')}
+                    >
+                        <Text style={styles.debugIcon}>🔧</Text>
+                        <Text style={styles.debugText}>DEBUG</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         style={[styles.torchBtn, torch === 'on' && styles.torchBtnActive]}
                         onPress={() => setTorch(t => t === 'on' ? 'off' : 'on')}
                     >
@@ -100,6 +156,14 @@ const ScannerScreen = ({ navigation }: any) => {
                     </View>
                 </View>
             </View>
+
+            {/* Validation Overlay */}
+            {isValidating && (
+                <View style={styles.validationOverlay}>
+                    <ActivityIndicator size="large" color="#3b82f6" />
+                    <Text style={styles.validationText}>Validating Inspection...</Text>
+                </View>
+            )}
         </View>
     );
 };
@@ -123,7 +187,28 @@ const styles = StyleSheet.create({
     },
     topControls: {
         width: '100%',
-        alignItems: 'flex-end',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    debugBtn: {
+        backgroundColor: 'rgba(251,146,60,0.8)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 15,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.3)',
+    },
+    debugIcon: {
+        fontSize: 18,
+        marginRight: 10,
+    },
+    debugText: {
+        color: 'white',
+        fontWeight: '900',
+        fontSize: 12,
     },
     torchBtn: {
         backgroundColor: 'rgba(0,0,0,0.6)',
@@ -211,6 +296,19 @@ const styles = StyleSheet.create({
         height: 4,
         borderRadius: 2,
     },
+    validationOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 100,
+    },
+    validationText: {
+        color: '#3b82f6',
+        marginTop: 20,
+        fontSize: 16,
+        fontWeight: 'bold',
+    }
 });
 
 export default ScannerScreen;
