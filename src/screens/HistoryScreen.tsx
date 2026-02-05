@@ -50,6 +50,11 @@ const HistoryScreen = ({ route, navigation }: any) => {
                 <View>
                     <Text style={styles.recordType}>{record.inspectionTypeLabel}</Text>
                     <Text style={styles.recordDate}>{formatDate(record.timestamp)}</Text>
+                    {record.odometer && (
+                        <View style={styles.odoHistoryTag}>
+                            <Text style={styles.odoHistoryText}>🚗 ODO: {record.odometer}</Text>
+                        </View>
+                    )}
                 </View>
                 <View style={[styles.statusBadge, record.summary.failCount > 0 ? styles.failBadge : styles.passBadge]}>
                     <Text style={styles.statusBadgeText}>
@@ -272,6 +277,19 @@ const styles = StyleSheet.create({
         fontSize: 16,
         textAlign: 'center',
         paddingHorizontal: 40,
+    },
+    odoHistoryTag: {
+        backgroundColor: '#f1f5f9',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+        marginTop: 6,
+        alignSelf: 'flex-start',
+    },
+    odoHistoryText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
     }
 });
 

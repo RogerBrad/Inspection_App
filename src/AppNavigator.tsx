@@ -6,6 +6,7 @@ import DetailsScreen from './screens/DetailsScreen';
 import PhotoComparisonScreen from './screens/PhotoComparisonScreen';
 import InspectionCameraScreen from './screens/InspectionCameraScreen';
 import HistoryScreen from './screens/HistoryScreen';
+import OdometerScanScreen from './screens/OdometerScanScreen';
 
 const Stack = createStackNavigator();
 
@@ -36,6 +37,11 @@ const AppNavigator = () => {
                 <Stack.Screen
                     name="History"
                     component={HistoryScreen}
+                    options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                    name="OdometerScan"
+                    component={OdometerScanScreen}
                     options={{ headerShown: false }}
                 />
             </Stack.Navigator>

@@ -17,6 +17,7 @@ const DetailsScreen = ({ route, navigation }: any) => {
     const [viewerUrl, setViewerUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [odometer, setOdometer] = useState('');
     const isFocused = useIsFocused();
 
     // Parsing Logic
@@ -163,6 +164,7 @@ const DetailsScreen = ({ route, navigation }: any) => {
                 inspectionTypeId: selectedType.id,
                 inspectionTypeLabel: selectedType.label,
                 results: results,
+                odometer: isVehicle ? odometer : undefined,
                 summary: { passCount, failCount }
             });
 
@@ -367,6 +369,33 @@ const DetailsScreen = ({ route, navigation }: any) => {
                         ))}
                     </View>
                 </View>
+
+                {/* 4. Odometer Reading (Motor Vehicle Only) */}
+                {isVehicle && (
+                    <View style={styles.odometerSection}>
+                        <Text style={styles.sectionTitle}>Final Details</Text>
+                        <View style={styles.odometerCard}>
+                            <Text style={styles.odoLabel}>ODOMETER READING</Text>
+                            <View style={styles.odoInputRow}>
+                                <TextInput
+                                    style={styles.odoInput}
+                                    placeholder="Enter mileage..."
+                                    placeholderTextColor="#94a3b8"
+                                    value={odometer}
+                                    onChangeText={setOdometer}
+                                    keyboardType="numeric"
+                                />
+                                <TouchableOpacity
+                                    style={styles.odoScanBtn}
+                                    onPress={() => navigation.navigate('OdometerScan', { onScan: (val: string) => setOdometer(val) })}
+                                >
+                                    <Text style={styles.odoScanBtnText}>📸 SCAN</Text>
+                                </TouchableOpacity>
+                            </View>
+                            <Text style={styles.odoHint}>Use the camera to automatically read the numbers from the dashboard.</Text>
+                        </View>
+                    </View>
+                )}
 
                 {/* Footer Padding */}
                 <View style={{ height: 100 }} />
@@ -807,6 +836,58 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '700',
         letterSpacing: 0.5,
+    },
+    odometerSection: {
+        marginTop: 35,
+    },
+    odometerCard: {
+        backgroundColor: '#fff',
+        marginHorizontal: 20,
+        borderRadius: 20,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        elevation: 2,
+    },
+    odoLabel: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#64748b',
+        marginBottom: 12,
+        letterSpacing: 1,
+    },
+    odoInputRow: {
+        flexDirection: 'row',
+        gap: 12,
+        alignItems: 'center',
+    },
+    odoInput: {
+        flex: 1,
+        backgroundColor: '#f8fafc',
+        borderRadius: 12,
+        padding: 15,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    odoScanBtn: {
+        backgroundColor: '#0f172a',
+        paddingHorizontal: 20,
+        paddingVertical: 15,
+        borderRadius: 12,
+    },
+    odoScanBtnText: {
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: 12,
+    },
+    odoHint: {
+        fontSize: 12,
+        color: '#94a3b8',
+        marginTop: 12,
+        fontStyle: 'italic',
     },
 });
 

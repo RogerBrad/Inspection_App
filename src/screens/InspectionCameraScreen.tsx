@@ -1,16 +1,22 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Image, ActivityIndicator, Alert } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
-import { Camera, useCameraDevice, CameraPermissionStatus } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCameraPermission, useCameraDevices } from 'react-native-vision-camera';
 import { photoService } from '../services/photoService';
 
 const InspectionCameraScreen = ({ route, navigation }: any) => {
     const { vin, registrationNumber, angle = 'front' } = route.params;
     const isFocused = useIsFocused();
-    const device = useCameraDevice('back');
-    const camera = useRef<Camera>(null);
+    const { hasPermission, requestPermission } = useCameraPermission();
 
-    const [permission, setPermission] = useState<CameraPermissionStatus>('not-determined');
+    // Modern v4 way to get the camera device
+    const backDevice = useCameraDevice('back');
+    const allDevices = useCameraDevices();
+
+    // Priority: 'back' device -> first available device
+    const device = useMemo(() => backDevice || allDevices[0], [backDevice, allDevices]);
+
+    const camera = useRef<Camera>(null);
     const [ghostImage, setGhostImage] = useState<string | null>(null);
     const [isCapturing, setIsCapturing] = useState(false);
 
@@ -18,12 +24,12 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
 
     useEffect(() => {
         (async () => {
-            const status = await Camera.requestCameraPermission();
-            setPermission(status);
-            if (status !== 'granted') return;
+            if (!hasPermission) {
+                await requestPermission();
+            }
 
             // Only fetch "Ghost" image for standard angles, not defects
-            if (!isDefect && vin && vin.trim() !== '') {
+            if (hasPermission && !isDefect && vin && vin.trim() !== '') {
                 try {
                     console.log(`Fetching ghost for VIN: ${vin}, Angle: ${angle}`);
                     const latest = await photoService.getLatestPhotoByAngle(vin, angle);
@@ -35,11 +41,11 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
                 }
             }
         })();
-    }, [vin, angle, isDefect]);
+    }, [vin, angle, isDefect, hasPermission]);
 
     const takePhoto = async () => {
-        if (!camera.current) {
-            console.error("Camera reference is null");
+        if (!camera.current || !device) {
+            console.error("Camera reference or device is null");
             return;
         }
 
@@ -93,20 +99,25 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
         }
     };
 
-    if (permission === 'not-determined') return <View style={styles.container}><ActivityIndicator color="white" /></View>;
-    if (permission === 'denied') return <View style={styles.container}><Text style={styles.text}>No camera permission.</Text></View>;
+    if (!hasPermission) return <View style={styles.container}><ActivityIndicator color="white" /><Text style={styles.text}>Awaiting Camera Permission...</Text></View>;
 
     // Show loader while camera hardware is being initialized/found
     if (device == null) return (
         <View style={styles.container}>
             <ActivityIndicator color="white" />
             <Text style={styles.text}>Initializing Camera...</Text>
+            <Text style={[styles.text, { fontSize: 12, marginTop: 10, opacity: 0.7 }]}>
+                {allDevices.length > 0 ? `Found ${allDevices.length} sensors, selecting...` : "Searching for camera sensors..."}
+            </Text>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 30, backgroundColor: 'rgba(255,255,255,0.1)', padding: 15, borderRadius: 10 }}>
+                <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>GO BACK</Text>
+            </TouchableOpacity>
         </View>
     );
 
     return (
         <View style={styles.container}>
-            {device && permission === 'granted' && (
+            {device && hasPermission && (
                 <Camera
                     ref={camera}
                     style={StyleSheet.absoluteFill}

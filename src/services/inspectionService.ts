@@ -44,6 +44,7 @@ export interface InspectionRecord {
     inspectionTypeLabel: string;
     timestamp: any;
     results: SubItemResult[];
+    odometer?: string;
     summary: {
         passCount: number;
         failCount: number;

@@ -1,30 +1,35 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { StyleSheet, Text, View, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
-import { Camera, useCameraDevice, useCodeScanner, CameraPermissionStatus } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCodeScanner, useCameraPermission, useCameraDevices } from 'react-native-vision-camera';
 import { Slider } from '@miblanchard/react-native-slider';
 
 const ScannerScreen = ({ navigation }: any) => {
     // Some devices have multiple back cameras (wide, telephoto), 
     // we want to ensure we get a valid one.
     const isFocused = useIsFocused();
-    const device = useCameraDevice('back');
-    const [permission, setPermission] = useState<CameraPermissionStatus>('not-determined');
+    const { hasPermission, requestPermission } = useCameraPermission();
+
+    // Modern v4 way to get the camera device
+    const backDevice = useCameraDevice('back');
+    const allDevices = useCameraDevices();
+
+    // Priority: 'back' device -> first available device
+    const device = useMemo(() => backDevice || allDevices[0], [backDevice, allDevices]);
+
     const [torch, setTorch] = useState<'off' | 'on'>('off');
     const [exposure, setExposure] = useState(0);
 
     useEffect(() => {
-        (async () => {
-            const status = await Camera.requestCameraPermission();
-            console.log("Camera Permission Status:", status);
-            setPermission(status);
-        })();
-    }, []);
+        if (!hasPermission) {
+            requestPermission();
+        }
+    }, [hasPermission]);
 
     const codeScanner = useCodeScanner({
         codeTypes: ['pdf-417', 'code-128', 'ean-13', 'qr'],
         onCodeScanned: (codes) => {
-            if (codes.length > 0 && codes[0].value) {
+            if (isFocused && codes.length > 0 && codes[0].value) {
                 const scannedType = codes[0].type;
                 const assetCategory = scannedType === 'pdf-417' ? 'motor_vehicle' : 'refrigeration';
 
@@ -37,8 +42,7 @@ const ScannerScreen = ({ navigation }: any) => {
         }
     });
 
-    if (permission === 'not-determined') return <View style={styles.container}><ActivityIndicator color="white" /><Text style={styles.text}>Requesting camera...</Text></View>;
-    if (permission === 'denied') return <View style={styles.container}><Text style={styles.text}>No camera permission. Please enable in settings.</Text></View>;
+    if (!hasPermission) return <View style={styles.container}><ActivityIndicator color="white" /><Text style={styles.text}>Requesting camera...</Text></View>;
 
     // If 'back' camera is null, it might be that the devices are still loading 
     // or the device doesn't exactly match 'back'
@@ -46,6 +50,9 @@ const ScannerScreen = ({ navigation }: any) => {
         <View style={styles.container}>
             <ActivityIndicator color="white" />
             <Text style={styles.text}>Initializing Camera Sensors...</Text>
+            <Text style={[styles.text, { fontSize: 12, marginTop: 10, opacity: 0.7 }]}>
+                {allDevices.length > 0 ? `Detected ${allDevices.length} camera(s)` : "Detecting camera hardware..."}
+            </Text>
         </View>
     );
 
