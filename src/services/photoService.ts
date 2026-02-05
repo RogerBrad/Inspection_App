@@ -92,10 +92,9 @@ export const photoService = {
                 }
             };
 
-            console.log("Saving to Firestore...");
-
-            // Create a unique ID manually to avoid addDoc round-trip reliance for ID generation
-            const customDocId = `${vehicleData.vin}_${timestamp}_${angle}`;
+            // Create a unique ID manually and sanitize it to avoid path segment issues (slashes)
+            const unsafeDocId = `${vehicleData.vin || 'temp'}_${timestamp}_${angle}`;
+            const customDocId = unsafeDocId.replace(/\//g, '_');
             const docRef = doc(db, COLLECTION_NAME, customDocId);
 
             await withTimeout(
@@ -115,7 +114,8 @@ export const photoService = {
                 try {
                     const projectId = "rogersdb-ef29e";
                     const fallbackTimestamp = Date.now();
-                    const customDocId = `${vehicleData.vin}_${fallbackTimestamp}_${angle}`;
+                    const unsafeDocId = `${vehicleData.vin || 'temp'}_${fallbackTimestamp}_${angle}`;
+                    const customDocId = unsafeDocId.replace(/\//g, '_');
                     const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${COLLECTION_NAME}?documentId=${customDocId}`;
 
                     const restBody = {

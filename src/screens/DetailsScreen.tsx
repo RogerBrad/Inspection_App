@@ -305,7 +305,7 @@ const DetailsScreen = ({ route, navigation }: any) => {
                                             const status = subItemStatus[key];
                                             const comment = comments[key] || '';
                                             const needsPhoto = failPhotos[key] || false;
-                                            const defectAngle = `DEFECT_${sub.replace(/\s+/g, '_')}`;
+                                            const defectAngle = `DEFECT_${sub.replace(/[\s\/]+/g, '_')}`;
                                             const defectPhoto = historyPhotos[defectAngle];
 
                                             return (

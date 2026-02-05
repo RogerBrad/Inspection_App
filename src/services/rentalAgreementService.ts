@@ -35,13 +35,22 @@ export interface InspectionWorkflow {
 
 /**
  * Cleans barcode value by removing symbology identifiers
- * Common prefixes: ]C1, ]E0, ]d2, etc.
+ * Common prefixes: ]C1, ]E0, ]d2, ]IC1, etc.
  */
 function cleanBarcodeValue(rawValue: string): string {
-    // Remove AIM (Association for Automatic Identification and Mobility) symbology identifiers
-    // These are typically in format ]XY where X is the code type and Y is a modifier
-    const cleaned = rawValue.replace(/^\][A-Z][0-9]/, '').trim();
-    console.log(`Barcode cleaned: "${rawValue}" -> "${cleaned}"`);
+    if (!rawValue) return '';
+
+    // 1. Remove AIM symbology identifiers: ] + 1-3 chars
+    // Example: ]C1, ]E0, ]I, ]IC1
+    let cleaned = rawValue.replace(/^\][A-Z0-9]{1,3}/, '').trim();
+
+    // 2. Secondary cleanup: if it still starts with a bracket or special char, 
+    // remove everything until the first letter/number
+    if (cleaned.startsWith(']') || !/^[A-Z0-9]/i.test(cleaned)) {
+        cleaned = cleaned.replace(/^[^A-Z0-9]+/, '');
+    }
+
+    console.log(`Barcode cleaning detail: Raw="${rawValue}" -> Cleaned="${cleaned}"`);
     return cleaned;
 }
 

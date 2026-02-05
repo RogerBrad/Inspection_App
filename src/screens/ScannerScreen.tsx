@@ -48,26 +48,36 @@ const ScannerScreen = ({ navigation }: any) => {
                     console.log('Barcode type:', scannedType);
                     console.log('Current user ID:', CURRENT_USER_ID);
 
-                    const validation = await rentalAgreementService.validateAndGetAgreement(
-                        scannedValue,
-                        CURRENT_USER_ID
-                    );
+                    let validation: { valid: boolean; agreement?: any; error?: string } = { valid: true };
 
-                    console.log('Validation result:', validation);
-
-                    if (!validation.valid) {
-                        // Show error alert with scanned barcode
-                        Alert.alert(
-                            'Inspection Not Available',
-                            `Scanned: "${scannedValue}"\n\n${validation.error || 'This asset cannot be inspected at this time.'}`,
-                            [
-                                {
-                                    text: 'OK',
-                                    onPress: () => setIsValidating(false)
-                                }
-                            ]
+                    // Only validate against DB if NOT a PDF417 (driver's license)
+                    if (scannedType !== 'pdf-417') {
+                        validation = await rentalAgreementService.validateAndGetAgreement(
+                            scannedValue,
+                            CURRENT_USER_ID
                         );
-                        return;
+
+                        console.log('Validation result:', validation);
+
+                        if (!validation.valid) {
+                            const cleaned = scannedValue.replace(/^\][A-Z0-9]{1,3}/, '').trim();
+                            // Show error alert with both raw and cleaned values
+                            Alert.alert(
+                                'Inspection Not Available',
+                                `Raw Scanned: "${scannedValue}"\n` +
+                                `Cleaned ID: "${cleaned}"\n\n` +
+                                `${validation.error || 'This asset cannot be inspected at this time.'}`,
+                                [
+                                    {
+                                        text: 'OK',
+                                        onPress: () => setIsValidating(false)
+                                    }
+                                ]
+                            );
+                            return;
+                        }
+                    } else {
+                        console.log('PDF-417 detected - skipping DB validation');
                     }
 
                     // Valid - proceed to details screen

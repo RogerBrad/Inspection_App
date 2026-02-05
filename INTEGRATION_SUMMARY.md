@@ -9,8 +9,12 @@ Successfully integrated the React Native inspection app with the SRAM dashboard'
 - **Added**: Realtime Database support alongside existing Firestore
 - **Export**: `realtimeDb` for accessing rental agreements
 
-### 2. New Service: Rental Agreement Service (`rentalAgreementService.ts`)
-Created a new service to handle rental agreement validation and workflow updates.
+- **PDF417 Bypass**: Scans of driver's licenses (PDF417 format) now skip database validation and proceed directly to the inspection details screen.
+- **Improved Logic**: Removed technician ID requirement (any technician can scan any allocated inspection)
+- **Odometer Validation**: Added requirement for odometer reading on vehicle inspections
+- **Bug Fix**: Eliminated Firestore "undefined" error when saving non-vehicle inspections
+- **Bug Fix**: Sanitized photo upload paths to handle special characters (slashes) in item names like "Dents/Scratches"
+- **New Feature**: Added orange Debug button and screen for easy diagnosis of database sync issues
 
 #### Key Functions:
 - **`validateAndGetAgreement(scannedId, currentUserId)`**
