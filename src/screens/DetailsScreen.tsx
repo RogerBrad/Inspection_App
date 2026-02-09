@@ -4,6 +4,8 @@ import { useIsFocused } from '@react-navigation/native';
 import { photoService, VehiclePhoto } from '../services/photoService';
 import { inspectionService, InspectionConfig, InspectionType } from '../services/inspectionService';
 import { rentalAgreementService } from '../services/rentalAgreementService';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 
 const DetailsScreen = ({ route, navigation }: any) => {
     const { data, assetCategory = 'motor_vehicle', agreement } = route.params;
@@ -20,6 +22,56 @@ const DetailsScreen = ({ route, navigation }: any) => {
     const [isSaving, setIsSaving] = useState(false);
     const [odometer, setOdometer] = useState('');
     const isFocused = useIsFocused();
+
+    // Zoom and Pan for Single Photo Viewer
+    const scale = useSharedValue(1);
+    const savedScale = useSharedValue(1);
+    const translateX = useSharedValue(0);
+    const savedTranslateX = useSharedValue(0);
+    const translateY = useSharedValue(0);
+    const savedTranslateY = useSharedValue(0);
+
+    const imageAnimatedStyle = useAnimatedStyle(() => ({
+        transform: [
+            { translateX: translateX.value },
+            { translateY: translateY.value },
+            { scale: scale.value },
+        ],
+    }));
+
+    const pinchGesture = Gesture.Pinch()
+        .onUpdate((e) => {
+            scale.value = savedScale.value * e.scale;
+        })
+        .onEnd(() => {
+            savedScale.value = scale.value;
+        });
+
+    const panGesture = Gesture.Pan()
+        .onUpdate((e) => {
+            translateX.value = savedTranslateX.value + e.translationX;
+            translateY.value = savedTranslateY.value + e.translationY;
+        })
+        .onEnd(() => {
+            savedTranslateX.value = translateX.value;
+            savedTranslateY.value = translateY.value;
+        });
+
+    const combinedGesture = Gesture.Simultaneous(pinchGesture, panGesture);
+
+    const resetViewerAlignment = () => {
+        scale.value = withSpring(1);
+        savedScale.value = 1;
+        translateX.value = withSpring(0);
+        savedTranslateX.value = 0;
+        translateY.value = withSpring(0);
+        savedTranslateY.value = 0;
+    };
+
+    const closeViewer = () => {
+        setViewerUrl(null);
+        resetViewerAlignment();
+    };
 
     // Parsing Logic
     const cleanData = (data || '').trim();
@@ -477,27 +529,31 @@ const DetailsScreen = ({ route, navigation }: any) => {
             <Modal
                 visible={!!viewerUrl}
                 transparent={true}
-                onRequestClose={() => setViewerUrl(null)}
+                onRequestClose={closeViewer}
                 animationType="fade"
             >
-                <Pressable
-                    style={styles.modalOverlay}
-                    onPress={() => setViewerUrl(null)}
-                >
-                    <View style={styles.modalContent}>
-                        <Image
-                            source={{ uri: viewerUrl || '' }}
-                            style={styles.fullImage}
-                            resizeMode="contain"
-                        />
-                        <TouchableOpacity
-                            style={styles.closeModalBtn}
-                            onPress={() => setViewerUrl(null)}
-                        >
-                            <Text style={styles.closeModalBtnText}>CLOSE</Text>
-                        </TouchableOpacity>
-                    </View>
-                </Pressable>
+                <GestureHandlerRootView style={{ flex: 1 }}>
+                    <Pressable
+                        style={styles.modalOverlay}
+                        onPress={closeViewer}
+                    >
+                        <View style={styles.modalContent}>
+                            <GestureDetector gesture={combinedGesture}>
+                                <Animated.Image
+                                    source={{ uri: viewerUrl || '' }}
+                                    style={[styles.fullImage, imageAnimatedStyle]}
+                                    resizeMode="contain"
+                                />
+                            </GestureDetector>
+                            <TouchableOpacity
+                                style={styles.closeModalBtn}
+                                onPress={closeViewer}
+                            >
+                                <Text style={styles.closeModalBtnText}>CLOSE</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Pressable>
+                </GestureHandlerRootView>
             </Modal>
         </View>
     );

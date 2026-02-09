@@ -124,7 +124,7 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
                     device={device}
                     isActive={isFocused}
                     photo={true}
-                    enableZoomGesture={false}
+                    enableZoomGesture={true}
                 />
             )}
 

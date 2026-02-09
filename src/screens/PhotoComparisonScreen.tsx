@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, Image, Text, TouchableOpacity, ActivityIndicator, Pressable, Dimensions } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Slider } from '@miblanchard/react-native-slider';
 
 interface Marker {
@@ -14,16 +15,126 @@ const PhotoComparisonScreen = ({ route, navigation }: any) => {
     const [loading, setLoading] = useState(true);
     const [markers, setMarkers] = useState<Marker[]>([]);
     const [isMarkingMode, setIsMarkingMode] = useState(false);
+    const [isAlignMode, setIsAlignMode] = useState(false);
+    const [containerSize, setContainerSize] = useState({ width: Dimensions.get('window').width, height: 400 });
 
-    const animatedStyle = useAnimatedStyle(() => ({
-        opacity: opacity.value,
+    const onLayout = (event: any) => {
+        const { width, height } = event.nativeEvent.layout;
+        setContainerSize({ width, height });
+    };
+
+    // Alignment Shared Values (Relative to Base)
+    const alignScale = useSharedValue(1);
+    const savedAlignScale = useSharedValue(1);
+    const alignX = useSharedValue(0);
+    const savedAlignX = useSharedValue(0);
+    const alignY = useSharedValue(0);
+    const savedAlignY = useSharedValue(0);
+
+    // Global Zoom Shared Values (Moving everything together)
+    const globalScale = useSharedValue(1);
+    const savedGlobalScale = useSharedValue(1);
+    const globalX = useSharedValue(0);
+    const savedGlobalX = useSharedValue(0);
+    const globalY = useSharedValue(0);
+    const savedGlobalY = useSharedValue(0);
+
+    const globalStyle = useAnimatedStyle(() => ({
+        transform: [
+            { translateX: globalX.value },
+            { translateY: globalY.value },
+            { scale: globalScale.value },
+        ],
     }));
+
+    const overlayStyle = useAnimatedStyle(() => ({
+        opacity: opacity.value,
+        transform: [
+            { translateX: alignX.value },
+            { translateY: alignY.value },
+            { scale: alignScale.value },
+        ],
+    }));
+
+    const baseStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: 1 }],
+    }));
+
+    // Gestures
+    const pinchGesture = Gesture.Pinch()
+        .enabled(!isMarkingMode)
+        .onUpdate((e) => {
+            if (isAlignMode) {
+                alignScale.value = savedAlignScale.value * e.scale;
+            } else {
+                globalScale.value = savedGlobalScale.value * e.scale;
+            }
+        })
+        .onEnd(() => {
+            if (isAlignMode) {
+                savedAlignScale.value = alignScale.value;
+            } else {
+                savedGlobalScale.value = globalScale.value;
+            }
+        });
+
+    const panGesture = Gesture.Pan()
+        .enabled(!isMarkingMode)
+        .onUpdate((e) => {
+            if (isAlignMode) {
+                alignX.value = savedAlignX.value + e.translationX;
+                alignY.value = savedAlignY.value + e.translationY;
+            } else {
+                globalX.value = savedGlobalX.value + e.translationX;
+                globalY.value = savedGlobalY.value + e.translationY;
+            }
+        })
+        .onEnd(() => {
+            if (isAlignMode) {
+                savedAlignX.value = alignX.value;
+                savedAlignY.value = alignY.value;
+            } else {
+                savedGlobalX.value = globalX.value;
+                savedGlobalY.value = globalY.value;
+            }
+        });
+
+    const combinedGesture = Gesture.Simultaneous(pinchGesture, panGesture);
+
+    const resetAlignment = () => {
+        if (isAlignMode) {
+            alignScale.value = withSpring(1);
+            savedAlignScale.value = 1;
+            alignX.value = withSpring(0);
+            savedAlignX.value = 0;
+            alignY.value = withSpring(0);
+            savedAlignY.value = 0;
+        } else {
+            globalScale.value = withSpring(1);
+            savedGlobalScale.value = 1;
+            globalX.value = withSpring(0);
+            savedGlobalX.value = 0;
+            globalY.value = withSpring(0);
+            savedGlobalY.value = 0;
+        }
+    };
 
     const handleTap = (event: any) => {
         if (!isMarkingMode) return;
 
         const { locationX, locationY } = event.nativeEvent;
-        setMarkers([...markers, { x: locationX, y: locationY }]);
+
+        // Calculate the center of the container
+        const centerX = containerSize.width / 2;
+        const centerY = containerSize.height / 2;
+
+        // Transform screen coordinates back to the global image space
+        // x' = (x - centerX) * scale + centerX + translateX
+        // x = (x' - centerX - translateX) / scale + centerX
+        const x = (locationX - centerX - globalX.value) / globalScale.value + centerX;
+        const y = (locationY - centerY - globalY.value) / globalScale.value + centerY;
+
+        setMarkers([...markers, { x, y }]);
     };
 
     return (
@@ -38,8 +149,22 @@ const PhotoComparisonScreen = ({ route, navigation }: any) => {
                 </View>
                 <View style={{ flexDirection: 'row' }}>
                     <TouchableOpacity
+                        style={[styles.toolButton, isAlignMode && styles.toolButtonActive]}
+                        onPress={() => {
+                            setIsAlignMode(!isAlignMode);
+                            setIsMarkingMode(false);
+                        }}
+                    >
+                        <Text style={[styles.toolText, isAlignMode && styles.toolTextActive]}>
+                            {isAlignMode ? 'Done' : 'Align'}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         style={[styles.toolButton, isMarkingMode && styles.toolButtonActive]}
-                        onPress={() => setIsMarkingMode(!isMarkingMode)}
+                        onPress={() => {
+                            setIsMarkingMode(!isMarkingMode);
+                            setIsAlignMode(false);
+                        }}
                     >
                         <Text style={[styles.toolText, isMarkingMode && styles.toolTextActive]}>
                             {isMarkingMode ? 'Done' : 'Mark'}
@@ -48,43 +173,54 @@ const PhotoComparisonScreen = ({ route, navigation }: any) => {
                 </View>
             </View>
 
-            <Pressable style={styles.imageContainer} onPress={handleTap}>
-                {loading && (
-                    <ActivityIndicator size="large" color="#007bff" style={styles.loader} />
-                )}
-
-                {/* Earlier Photo (Base) */}
-                <Image
-                    source={{ uri: photoBefore }}
-                    style={styles.image}
-                    onLoadEnd={() => setLoading(false)}
-                />
-
-                {/* Current Photo (Overlay) */}
-                <Animated.Image
-                    source={{ uri: photoAfter }}
-                    style={[styles.image, styles.overlay, animatedStyle]}
-                />
-
-                {/* Render Markers */}
-                {markers.map((marker, index) => (
-                    <View
-                        key={index}
-                        style={[
-                            styles.marker,
-                            {
-                                left: marker.x - 15,
-                                top: marker.y - 15,
-                            }
-                        ]}
+            <GestureHandlerRootView style={{ flex: 1 }}>
+                <GestureDetector gesture={combinedGesture}>
+                    <Pressable
+                        style={styles.imageContainer}
+                        onPress={handleTap}
+                        onLayout={onLayout}
                     >
-                        <View style={styles.markerInner} />
-                    </View>
-                ))}
+                        {loading && (
+                            <ActivityIndicator size="large" color="#007bff" style={styles.loader} />
+                        )}
 
-                {/* Touch Interceptor specifically for marking */}
-                {isMarkingMode && <View style={styles.touchTarget} />}
-            </Pressable>
+                        {/* Global Transform Wrapper */}
+                        <Animated.View style={[{ width: '100%', height: '100%' }, globalStyle]}>
+                            {/* Earlier Photo (Base) */}
+                            <Animated.Image
+                                source={{ uri: photoBefore }}
+                                style={[styles.image, baseStyle]}
+                                onLoadEnd={() => setLoading(false)}
+                            />
+
+                            {/* Current Photo (Overlay) */}
+                            <Animated.Image
+                                source={{ uri: photoAfter }}
+                                style={[styles.image, styles.overlay, overlayStyle]}
+                            />
+
+                            {/* Render Markers (Anchored to the global transformation) */}
+                            {markers.map((marker, index) => (
+                                <View
+                                    key={index}
+                                    style={[
+                                        styles.marker,
+                                        {
+                                            left: marker.x - 15,
+                                            top: marker.y - 15,
+                                        }
+                                    ]}
+                                >
+                                    <View style={styles.markerInner} />
+                                </View>
+                            ))}
+                        </Animated.View>
+
+                        {/* Touch Interceptor specifically for marking */}
+                        {isMarkingMode && <View style={styles.touchTarget} />}
+                    </Pressable>
+                </GestureDetector>
+            </GestureHandlerRootView>
 
             <View style={styles.controls}>
                 {isMarkingMode ? (
@@ -92,6 +228,13 @@ const PhotoComparisonScreen = ({ route, navigation }: any) => {
                         <Text style={styles.markingHint}>Tap on the image to mark defects</Text>
                         <TouchableOpacity style={styles.clearButton} onPress={() => setMarkers([])}>
                             <Text style={styles.clearButtonText}>Clear Markers ({markers.length})</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : isAlignMode ? (
+                    <View style={styles.markingControls}>
+                        <Text style={styles.markingHint}>Pinch to Zoom & Drag to Align Present with Past</Text>
+                        <TouchableOpacity style={styles.clearButton} onPress={resetAlignment}>
+                            <Text style={styles.clearButtonText}>Reset Alignment</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (
@@ -109,7 +252,13 @@ const PhotoComparisonScreen = ({ route, navigation }: any) => {
                             thumbStyle={styles.thumb}
                             minimumTrackTintColor="#007bff"
                         />
-                        <Text style={styles.hint}>Slide to reveal differences or NEW damage</Text>
+                        <Text style={styles.hint}>Pinch to Zoom / Slide to reveal differences</Text>
+                        <TouchableOpacity
+                            style={[styles.clearButton, { alignSelf: 'center', marginTop: 10 }]}
+                            onPress={resetAlignment}
+                        >
+                            <Text style={styles.clearButtonText}>Reset Zoom</Text>
+                        </TouchableOpacity>
                     </>
                 )}
             </View>

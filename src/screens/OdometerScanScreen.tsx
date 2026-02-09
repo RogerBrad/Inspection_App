@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Alert, Sta
 import { useIsFocused } from '@react-navigation/native';
 import { Camera, useCameraDevice, useCameraPermission, useCameraDevices } from 'react-native-vision-camera';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
+import { Slider } from '@miblanchard/react-native-slider';
 
 const OdometerScanScreen = ({ navigation, route }: any) => {
     const { onScan } = route.params;
@@ -19,6 +20,16 @@ const OdometerScanScreen = ({ navigation, route }: any) => {
     const camera = useRef<Camera>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [torch, setTorch] = useState(false);
+    const [zoom, setZoom] = useState(1);
+    const [minZoom, setMinZoom] = useState(1);
+    const [maxZoom, setMaxZoom] = useState(6);
+
+    useEffect(() => {
+        if (device) {
+            setMinZoom(device.minZoom || 1);
+            setMaxZoom(Math.min(device.maxZoom || 10, 8)); // Cap it at 8x for stability
+        }
+    }, [device]);
 
     useEffect(() => {
         if (!hasPermission) {
@@ -57,28 +68,47 @@ const OdometerScanScreen = ({ navigation, route }: any) => {
                 result = await TextRecognition.recognize(imagePath);
             }
 
-            // Logic to find the odometer reading: usually looks for a 5-7 digit number
-            const lines = result.text.split('\n');
-            let foundOdo = '';
-            let rawDetected = result.text.substring(0, 100); // For debugging if it fails
+            // Logic to find the odometer reading
+            const rawText = result.text || '';
+            const lines = rawText.split('\n');
+            let candidates: string[] = [];
 
-            // Try to find a sequence of 3-8 digits (being more lenient now)
+            console.log("Full OCR Output:", rawText);
+
+            // 1. Extract all potential numeric sequences from all lines
             for (const line of lines) {
-                // Remove spaces and alphabets
-                const cleanLine = line.replace(/[a-zA-Z\s,]/g, '').trim();
-                // Find first number that is 3-8 digits long
-                const match = cleanLine.match(/\d{3,8}/);
-                if (match) {
-                    foundOdo = match[0];
-                    break;
+                // Remove letters and symbols, keep only digits and decimal points (sometimes trip has decimals)
+                const cleanLine = line.replace(/[a-zA-Z\s]/g, '').trim();
+
+                // Match patterns like 12345, 123456, 1234.5
+                const matches = cleanLine.match(/\d+([.,]\d+)?/g);
+                if (matches) {
+                    candidates.push(...matches);
                 }
             }
 
+            // 2. Refine candidates: convert to pure numbers, filtered by length
+            let filtered = candidates
+                .map(c => c.replace(/[.,]/g, '')) // Remove decimals for comparison
+                .filter(c => c.length >= 4 && c.length <= 8); // Odos are usually 4-7 digits
+
+            // 3. Selection Strategy:
+            // - Prefer numbers with 6 digits (very common)
+            // - Otherwise pick the largest number found (Trip meters are almost always smaller than ODOs)
+            let foundOdo = '';
+            if (filtered.length > 0) {
+                // Sort by length first (desc), then value (desc)
+                filtered.sort((a, b) => b.length - a.length || parseInt(b) - parseInt(a));
+                foundOdo = filtered[0];
+            }
+
             if (foundOdo) {
+                console.log(`OCR Success. Candidate: ${foundOdo}`);
                 onScan(foundOdo);
                 navigation.goBack();
             } else {
-                Alert.alert("OCR Failed", `Could not find a clear number in: "${rawDetected}..." \n\nPlease try again or enter manually.`, [
+                const debugSnippet = rawText.substring(0, 150).replace(/\n/g, ' ');
+                Alert.alert("OCR Failed", `Found text: "${debugSnippet}..." \n\nNo valid odometer (4-7 digits) could be identified. Please try again or enter manually.`, [
                     { text: "Manual Entry", onPress: () => navigation.goBack() },
                     { text: "Try Again", onPress: () => setIsProcessing(false) }
                 ]);
@@ -124,6 +154,8 @@ const OdometerScanScreen = ({ navigation, route }: any) => {
                 isActive={isFocused && !isProcessing}
                 photo={true}
                 torch={torch ? 'on' : 'off'}
+                zoom={zoom}
+                enableZoomGesture={true}
             />
 
             <View style={styles.overlay}>
@@ -143,7 +175,25 @@ const OdometerScanScreen = ({ navigation, route }: any) => {
                         <View style={styles.cornerTopRight} />
                         <View style={styles.cornerBottomLeft} />
                         <View style={styles.cornerBottomRight} />
-                        <Text style={styles.guideText}>ALIGN NUMBERS HERE</Text>
+                        <Text style={styles.guideText}>ALIGN ODOMETER HERE</Text>
+                    </View>
+
+                    {/* Zoom Slider */}
+                    <View style={styles.zoomContainer}>
+                        <Text style={styles.zoomText}>ZOOM</Text>
+                        <View style={styles.sliderWrapper}>
+                            <Slider
+                                value={zoom}
+                                onValueChange={(val: any) => setZoom(val[0])}
+                                minimumValue={minZoom}
+                                maximumValue={maxZoom}
+                                step={0.1}
+                                thumbStyle={styles.zoomThumb}
+                                trackStyle={styles.zoomTrack}
+                                minimumTrackTintColor="#3b82f6"
+                            />
+                        </View>
+                        <Text style={styles.zoomValue}>{zoom.toFixed(1)}x</Text>
                     </View>
                 </View>
 
@@ -302,6 +352,39 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: '800',
         fontSize: 11,
+    },
+    zoomContainer: {
+        width: '80%',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        borderRadius: 15,
+        padding: 10,
+        marginTop: 40,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    zoomText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '900',
+    },
+    zoomValue: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '900',
+        minWidth: 30,
+    },
+    sliderWrapper: {
+        flex: 1,
+    },
+    zoomThumb: {
+        width: 16,
+        height: 16,
+        backgroundColor: '#fff',
+    },
+    zoomTrack: {
+        height: 4,
+        borderRadius: 2,
     }
 });
 
