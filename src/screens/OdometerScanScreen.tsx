@@ -14,15 +14,32 @@ const OdometerScanScreen = ({ navigation, route }: any) => {
     const backDevice = useCameraDevice('back');
     const allDevices = useCameraDevices();
 
-    // Priority: 'back' device -> first available device
-    const device = useMemo(() => backDevice || allDevices[0], [backDevice, allDevices]);
-
-    const camera = useRef<Camera>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [torch, setTorch] = useState(false);
+    const [initTimeout, setInitTimeout] = useState(false);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    // Priority: 'back' device -> first available device
+    const device = useMemo(() => backDevice || allDevices[0], [backDevice, allDevices, refreshKey]);
+
+    const camera = useRef<Camera>(null);
     const [zoom, setZoom] = useState(1);
     const [minZoom, setMinZoom] = useState(1);
     const [maxZoom, setMaxZoom] = useState(6);
+
+
+    // Timeout to detect if camera hardware is taking too long
+    useEffect(() => {
+        let timer: any;
+        if (isFocused && !device) {
+            timer = setTimeout(() => {
+                setInitTimeout(true);
+            }, 6000); // 6 seconds before showing troubleshooting
+        } else {
+            setInitTimeout(false);
+        }
+        return () => clearTimeout(timer);
+    }, [device, isFocused, refreshKey]);
 
     useEffect(() => {
         if (device) {
@@ -132,11 +149,29 @@ const OdometerScanScreen = ({ navigation, route }: any) => {
         return (
             <View style={styles.center}>
                 <ActivityIndicator color="#3b82f6" />
-                <Text style={{ marginTop: 20 }}>Initializing Odometer Camera...</Text>
-                <Text style={{ fontSize: 12, marginTop: 10, opacity: 0.7 }}>
-                    {allDevices.length > 0 ? `Found ${allDevices.length} sensors...` : "Searching for camera..."}
+                <Text style={{ marginTop: 20, fontWeight: 'bold' }}>Initializing Odometer Camera...</Text>
+                <Text style={{ fontSize: 13, marginTop: 10, opacity: 0.7, textAlign: 'center', paddingHorizontal: 40 }}>
+                    {allDevices.length > 0 ? `Detected ${allDevices.length} sensors, finalizing...` : "Searching for camera hardware..."}
                 </Text>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 30 }}>
+
+                {initTimeout && (
+                    <View style={{ marginTop: 40, alignItems: 'center', width: '100%' }}>
+                        <Text style={{ color: '#fb923c', fontWeight: 'bold', marginBottom: 20, textAlign: 'center', paddingHorizontal: 20 }}>
+                            Hardware discovery is having trouble.
+                        </Text>
+                        <TouchableOpacity
+                            onPress={() => setRefreshKey(k => k + 1)}
+                            style={{ backgroundColor: '#3b82f6', paddingVertical: 12, paddingHorizontal: 30, borderRadius: 25, marginBottom: 15 }}
+                        >
+                            <Text style={{ color: 'white', fontWeight: 'bold' }}>RETRY SENSOR SCAN</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                <TouchableOpacity
+                    onPress={() => navigation.goBack()}
+                    style={{ marginTop: initTimeout ? 10 : 30, padding: 15 }}
+                >
                     <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>GO BACK</Text>
                 </TouchableOpacity>
             </View>

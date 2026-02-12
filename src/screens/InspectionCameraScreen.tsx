@@ -9,18 +9,34 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
     const isFocused = useIsFocused();
     const { hasPermission, requestPermission } = useCameraPermission();
 
+    const [isCapturing, setIsCapturing] = useState(false);
+    const [initTimeout, setInitTimeout] = useState(false);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    const camera = useRef<Camera>(null);
+    const [ghostImage, setGhostImage] = useState<string | null>(null);
+
     // Modern v4 way to get the camera device
     const backDevice = useCameraDevice('back');
     const allDevices = useCameraDevices();
 
     // Priority: 'back' device -> first available device
-    const device = useMemo(() => backDevice || allDevices[0], [backDevice, allDevices]);
-
-    const camera = useRef<Camera>(null);
-    const [ghostImage, setGhostImage] = useState<string | null>(null);
-    const [isCapturing, setIsCapturing] = useState(false);
+    const device = useMemo(() => backDevice || allDevices[0], [backDevice, allDevices, refreshKey]);
 
     const isDefect = angle.startsWith('DEFECT_');
+
+    // Timeout to detect if camera hardware is taking too long
+    useEffect(() => {
+        let timer: any;
+        if (isFocused && !device) {
+            timer = setTimeout(() => {
+                setInitTimeout(true);
+            }, 6000); // 6 seconds before showing troubleshooting
+        } else {
+            setInitTimeout(false);
+        }
+        return () => clearTimeout(timer);
+    }, [device, isFocused, refreshKey]);
 
     useEffect(() => {
         (async () => {
@@ -105,11 +121,29 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
     if (device == null) return (
         <View style={styles.container}>
             <ActivityIndicator color="white" />
-            <Text style={styles.text}>Initializing Camera...</Text>
-            <Text style={[styles.text, { fontSize: 12, marginTop: 10, opacity: 0.7 }]}>
-                {allDevices.length > 0 ? `Found ${allDevices.length} sensors, selecting...` : "Searching for camera sensors..."}
+            <Text style={styles.text}>Initializing Camera Sensors...</Text>
+            <Text style={[styles.text, { fontSize: 13, marginTop: 10, opacity: 0.7, textAlign: 'center', paddingHorizontal: 40 }]}>
+                {allDevices.length > 0 ? `Detected ${allDevices.length} sensors, finalizing...` : "Searching for camera hardware..."}
             </Text>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 30, backgroundColor: 'rgba(255,255,255,0.1)', padding: 15, borderRadius: 10 }}>
+
+            {initTimeout && (
+                <View style={{ marginTop: 40, alignItems: 'center', width: '100%' }}>
+                    <Text style={{ color: '#fb923c', fontWeight: 'bold', marginBottom: 20, textAlign: 'center', paddingHorizontal: 20 }}>
+                        Camera hardware is not responding.
+                    </Text>
+                    <TouchableOpacity
+                        onPress={() => setRefreshKey(k => k + 1)}
+                        style={{ backgroundColor: '#3b82f6', paddingVertical: 12, paddingHorizontal: 30, borderRadius: 25, marginBottom: 15 }}
+                    >
+                        <Text style={{ color: 'white', fontWeight: 'bold' }}>RETRY SENSOR DISCOVERY</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={{ marginTop: initTimeout ? 10 : 30, backgroundColor: 'rgba(255,255,255,0.1)', padding: 15, borderRadius: 10 }}
+            >
                 <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>GO BACK</Text>
             </TouchableOpacity>
         </View>
