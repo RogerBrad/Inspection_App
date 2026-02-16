@@ -1,5 +1,8 @@
 import { realtimeDb } from './firebaseConfig';
-import { ref, get, update } from 'firebase/database';
+import { ref, get, update, query, orderByChild, equalTo } from 'firebase/database';
+import { offlineStorage } from './offlineStorage';
+import NetInfo from "@react-native-community/netinfo";
+
 
 export interface RentalAgreement {
     id: string;
@@ -11,6 +14,7 @@ export interface RentalAgreement {
         vin?: string;
         serialNumber?: string;
     };
+    assetCategory?: string;
     endOfRental?: {
         inspectionDate: string;
     };
@@ -143,8 +147,23 @@ export const rentalAgreementService = {
         passed: boolean,
         notes: string,
         inspectionItems: any[]
-    ): Promise<{ success: boolean; error?: string }> {
+    ): Promise<{ success: boolean; error?: string; offline?: boolean }> {
         try {
+            const netInfo = await NetInfo.fetch();
+
+            // Offline Mode
+            if (!netInfo.isConnected) {
+                await offlineStorage.savePendingInspection({
+                    agreementId,
+                    passed,
+                    notes,
+                    inspectionItems,
+                    timestamp: Date.now()
+                });
+                return { success: true, offline: true };
+            }
+
+            // Online Mode
             const updates: any = {};
             const workflowPath = `rentalAgreements/${agreementId}/inspectionWorkflow`;
 
@@ -166,5 +185,101 @@ export const rentalAgreementService = {
                 error: `Failed to update database: ${error instanceof Error ? error.message : 'Unknown error'}`
             };
         }
+    },
+
+    /**
+     * Download all ALLOCATED inspections from Firebase and store locally
+     */
+    async syncDownAllocatedInspections(currentUserId: string): Promise<{ success: boolean; count: number }> {
+        try {
+            const netInfo = await NetInfo.fetch();
+            if (!netInfo.isConnected) {
+                console.log('Offline: Skipping download');
+                return { success: false, count: 0 };
+            }
+
+            // Fetch all rental agreements
+            // Ideally we would query specifically for allocated status, but Firebase RTDB querying is limited
+            // without complex indexing. For now, fetch all active agreement nodes is acceptable for this scale.
+            const agreementsRef = ref(realtimeDb, 'rentalAgreements');
+            const snapshot = await get(agreementsRef);
+
+            if (!snapshot.exists()) {
+                await offlineStorage.saveAgreements([]);
+                return { success: true, count: 0 };
+            }
+
+            const data = snapshot.val();
+            const allocatedAgreements: RentalAgreement[] = [];
+
+            Object.entries(data).forEach(([key, value]: [string, any]) => {
+                // Filter for "Allocated" status
+                // Optional: Filter by Technician ID if strict assignment is needed
+                if (value.inspectionWorkflow?.status === 'Allocated') {
+                    allocatedAgreements.push({
+                        ...value,
+                        id: key
+                    });
+                }
+            });
+
+            await offlineStorage.saveAgreements(allocatedAgreements);
+            return { success: true, count: allocatedAgreements.length };
+
+        } catch (error) {
+            console.error('Download sync failed:', error);
+            return { success: false, count: 0 };
+        }
+    },
+
+    /**
+     * Upload locally completed inspections to Firebase
+     */
+    async syncUpCompletedInspections(): Promise<{ success: boolean; count: number; errors: any[] }> {
+        try {
+            const netInfo = await NetInfo.fetch();
+            if (!netInfo.isConnected) return { success: false, count: 0, errors: [] };
+
+            const pending = await offlineStorage.getPendingInspections();
+            if (pending.length === 0) return { success: true, count: 0, errors: [] };
+
+            const successIds: string[] = [];
+            const errors: any[] = [];
+
+            for (const item of pending) {
+                try {
+                    // Re-use existing update logic
+                    await this.updateInspectionResult(
+                        item.agreementId,
+                        item.passed,
+                        item.notes,
+                        item.inspectionItems
+                    );
+                    successIds.push(item.agreementId);
+                } catch (e) {
+                    console.error(`Failed to sync up inspection ${item.agreementId}:`, e);
+                    errors.push({ id: item.agreementId, error: e });
+                }
+            }
+
+            // Remove successfully synced items from local storage
+            if (successIds.length > 0) {
+                await offlineStorage.removePendingInspections(successIds);
+            }
+
+            return { success: true, count: successIds.length, errors };
+
+        } catch (error) {
+            console.error('Upload sync failed:', error);
+            return { success: false, count: 0, errors: [error] };
+        }
+    },
+
+    /**
+     * Get inspection list (prefer local storage)
+     */
+    async getLocalInspections(): Promise<RentalAgreement[]> {
+        return await offlineStorage.getAgreements();
     }
 };
+

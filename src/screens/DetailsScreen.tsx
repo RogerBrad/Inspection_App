@@ -241,8 +241,9 @@ const DetailsScreen = ({ route, navigation }: any) => {
             await inspectionService.saveInspection(inspectionRecord);
 
             // Update Rental Agreement Workflow (if agreement exists)
+            let updateResult;
             if (agreement && agreement.id) {
-                const updateResult = await rentalAgreementService.updateInspectionResult(
+                updateResult = await rentalAgreementService.updateInspectionResult(
                     agreement.id,
                     overallPassed,
                     inspectionNotes,
@@ -261,22 +262,30 @@ const DetailsScreen = ({ route, navigation }: any) => {
             }
 
             // Show success confirmation
-            Alert.alert(
-                overallPassed ? "✅ Inspection Passed" : "⚠️ Inspection Failed",
-                agreement
-                    ? `The inspection has been completed and the database has been updated.\n\n` +
-                    `Result: ${overallPassed ? 'PASSED' : 'FAILED'}\n` +
-                    `${passCount} items passed\n` +
-                    `${failCount} items failed\n\n` +
-                    `The office will be notified of this ${overallPassed ? 'successful' : 'failed'} inspection.`
-                    : `Inspection saved successfully.\n\n` +
-                    `Result: ${overallPassed ? 'PASSED' : 'FAILED'}\n` +
-                    `${passCount} items passed\n` +
-                    `${failCount} items failed`,
-                [
-                    { text: "OK", onPress: () => navigation.navigate('Scanner') }
-                ]
-            );
+            if (updateResult?.offline) {
+                Alert.alert(
+                    "Saved Offline",
+                    "You are offline. The inspection has been saved locally and will be synced when you are back online.",
+                    [{ text: "OK", onPress: () => navigation.navigate('InspectionList') }]
+                );
+            } else {
+                Alert.alert(
+                    overallPassed ? "✅ Inspection Passed" : "⚠️ Inspection Failed",
+                    agreement
+                        ? `The inspection has been completed and the database has been updated.\n\n` +
+                        `Result: ${overallPassed ? 'PASSED' : 'FAILED'}\n` +
+                        `${passCount} items passed\n` +
+                        `${failCount} items failed\n\n` +
+                        `The office will be notified of this ${overallPassed ? 'successful' : 'failed'} inspection.`
+                        : `Inspection saved successfully.\n\n` +
+                        `Result: ${overallPassed ? 'PASSED' : 'FAILED'}\n` +
+                        `${passCount} items passed\n` +
+                        `${failCount} items failed`,
+                    [
+                        { text: "OK", onPress: () => navigation.navigate('InspectionList') }
+                    ]
+                );
+            }
         } catch (error) {
             console.error("Save failed:", error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';

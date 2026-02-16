@@ -1,7 +1,9 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+import InspectionListScreen from './screens/InspectionListScreen';
 import ScannerScreen from './screens/ScannerScreen';
+
 import DetailsScreen from './screens/DetailsScreen';
 import PhotoComparisonScreen from './screens/PhotoComparisonScreen';
 import InspectionCameraScreen from './screens/InspectionCameraScreen';
@@ -14,9 +16,15 @@ const Stack = createStackNavigator();
 const AppNavigator = () => {
     return (
         <NavigationContainer>
-            <Stack.Navigator initialRouteName="Scanner">
+            <Stack.Navigator initialRouteName="InspectionList">
+                <Stack.Screen
+                    name="InspectionList"
+                    component={InspectionListScreen}
+                    options={{ title: 'My Inspections', headerShown: false }}
+                />
                 <Stack.Screen
                     name="Scanner"
+
                     component={ScannerScreen}
                     options={{ headerShown: false }}
                 />
