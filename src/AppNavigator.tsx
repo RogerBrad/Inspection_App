@@ -61,7 +61,6 @@ const AppNavigator = () => {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#3b82f6" />
-                <Text style={{ color: '#94a3b8', marginTop: 15 }}>Establishing Secure Session...</Text>
             </View>
         );
     }
