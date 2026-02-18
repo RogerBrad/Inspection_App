@@ -3,10 +3,33 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const STORAGE_KEYS = {
     AGREEMENTS: 'offline_agreements',
     PENDING_INSPECTIONS: 'pending_inspections',
-    LAST_SYNC: 'last_sync_timestamp'
+    LAST_SYNC: 'last_sync_timestamp',
+    USER_ID: 'app_user_id'
 };
 
 export const offlineStorage = {
+    /**
+     * Get the current user ID
+     */
+    async getUserId(): Promise<string> {
+        try {
+            const id = await AsyncStorage.getItem(STORAGE_KEYS.USER_ID);
+            return id || 'USER_001'; // Default placeholder
+        } catch (error) {
+            return 'USER_001';
+        }
+    },
+
+    /**
+     * Set the current user ID
+     */
+    async setUserId(userId: string) {
+        try {
+            await AsyncStorage.setItem(STORAGE_KEYS.USER_ID, userId);
+        } catch (error) {
+            console.error('Failed to set user ID:', error);
+        }
+    },
     /**
      * Save agreements to local storage for offline access
      */

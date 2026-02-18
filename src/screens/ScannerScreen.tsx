@@ -5,37 +5,42 @@ import { Camera, useCameraDevice, useCodeScanner, useCameraPermission, useCamera
 import { Slider } from '@miblanchard/react-native-slider';
 import { rentalAgreementService } from '../services/rentalAgreementService';
 
-// Note: User authentication is not currently implemented
-// Any technician can scan any inspection that has "Allocated" status
-const CURRENT_USER_ID = 'USER_001'; // Placeholder for future auth implementation
+import { offlineStorage } from '../services/offlineStorage';
 
-const ScannerScreen = ({ navigation }: any) => {
+const ScannerScreen = ({ route, navigation }: any) => {
+    // optional params when coming from Inspection List
+    const { expectedId, agreement } = route.params || {};
+
     // Some devices have multiple back cameras (wide, telephoto), 
-    // we want to ensure we get a valid one.
     const isFocused = useIsFocused();
     const { hasPermission, requestPermission } = useCameraPermission();
 
-    // Modern v4 way to get the camera device
-    const backDevice = useCameraDevice('back');
-    const allDevices = useCameraDevices();
-
+    const [currentUserId, setCurrentUserId] = useState<string>('');
     const [initTimeout, setInitTimeout] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
 
-    // Priority: 'back' device -> first available device
+    const backDevice = useCameraDevice('back');
+    const allDevices = useCameraDevices();
     const device = useMemo(() => backDevice || allDevices[0], [backDevice, allDevices, refreshKey]);
 
     const [torch, setTorch] = useState<'off' | 'on'>('off');
     const [exposure, setExposure] = useState(0);
     const [isValidating, setIsValidating] = useState(false);
 
-    // Timeout to detect if camera hardware is taking too long
+    useEffect(() => {
+        const fetchUser = async () => {
+            const id = await offlineStorage.getUserId();
+            setCurrentUserId(id);
+        };
+        fetchUser();
+    }, []);
+
     useEffect(() => {
         let timer: any;
         if (isFocused && !device) {
             timer = setTimeout(() => {
                 setInitTimeout(true);
-            }, 6000); // 6 seconds before showing troubleshooting
+            }, 6000);
         } else {
             setInitTimeout(false);
         }
@@ -55,63 +60,58 @@ const ScannerScreen = ({ navigation }: any) => {
                 setIsValidating(true);
                 const scannedValue = codes[0].value;
                 const scannedType = codes[0].type;
-                const assetCategory = scannedType === 'pdf-417' ? 'motor_vehicle' : 'refrigeration';
+
+                // Clean the barcode value for comparison
+                const cleanedValue = scannedValue.replace(/^\][A-Z0-9]{1,3}/, '').trim();
+
+                console.log('=== BARCODE SCAN DEBUG ===');
+                console.log('Raw:', scannedValue, 'Cleaned:', cleanedValue, 'Type:', scannedType);
+
+                // If we are expecting a specific ID (from the List), check it now
+                if (expectedId) {
+                    if (cleanedValue !== expectedId) {
+                        Alert.alert(
+                            'Incorrect Asset',
+                            `You scanned: ${cleanedValue}\nExpected: ${expectedId}\n\nPlease scan the correct item.`,
+                            [{ text: 'OK', onPress: () => setIsValidating(false) }]
+                        );
+                        return;
+                    }
+                    console.log('Match confirmed for expected ID:', expectedId);
+                }
 
                 try {
-                    // Validate against rental agreements
-                    console.log('=== BARCODE SCAN DEBUG ===');
-                    console.log('Raw scanned value:', scannedValue);
-                    console.log('Barcode type:', scannedType);
-                    console.log('Current user ID:', CURRENT_USER_ID);
+                    let targetAgreement = agreement;
+                    let targetCategory = agreement?.assetCategory;
 
-                    let validation: { valid: boolean; agreement?: any; error?: string } = { valid: true };
+                    // If it's a Vehicle (PDF-417), go straight in without DB validation if no agreement is provided
+                    const isPDF417 = scannedType === 'pdf-417';
 
-                    // Only validate against DB if NOT a PDF417 (driver's license)
-                    if (scannedType !== 'pdf-417') {
-                        validation = await rentalAgreementService.validateAndGetAgreement(
-                            scannedValue,
-                            CURRENT_USER_ID
-                        );
-
-                        console.log('Validation result:', validation);
-
+                    if (!targetAgreement && !isPDF417) {
+                        const validation = await rentalAgreementService.validateAndGetAgreement(cleanedValue, currentUserId);
                         if (!validation.valid) {
-                            const cleaned = scannedValue.replace(/^\][A-Z0-9]{1,3}/, '').trim();
-                            // Show error alert with both raw and cleaned values
-                            Alert.alert(
-                                'Inspection Not Available',
-                                `Raw Scanned: "${scannedValue}"\n` +
-                                `Cleaned ID: "${cleaned}"\n\n` +
-                                `${validation.error || 'This asset cannot be inspected at this time.'}`,
-                                [
-                                    {
-                                        text: 'OK',
-                                        onPress: () => setIsValidating(false)
-                                    }
-                                ]
-                            );
+                            Alert.alert('Error', validation.error || 'Inspection not available.', [{ text: 'OK', onPress: () => setIsValidating(false) }]);
                             return;
                         }
-                    } else {
-                        console.log('PDF-417 detected - skipping DB validation');
+                        targetAgreement = validation.agreement;
+                        targetCategory = targetAgreement?.assetCategory;
                     }
 
-                    // Valid - proceed to details screen
-                    navigation.navigate('Details', {
-                        data: scannedValue,
-                        scannedType: scannedType,
-                        assetCategory: assetCategory,
-                        agreement: validation.agreement
-                    });
+                    // Fallback category logic
+                    if (!targetCategory) {
+                        targetCategory = isPDF417 ? 'motor_vehicle' : 'refrigeration';
+                    }
 
+                    navigation.navigate('Details', {
+                        data: cleanedValue,
+                        scannedType: scannedType,
+                        assetCategory: targetCategory,
+                        agreement: targetAgreement
+                    });
                     setIsValidating(false);
                 } catch (error) {
                     console.error('Validation error:', error);
-                    Alert.alert(
-                        'Error',
-                        'Failed to validate barcode. Please try again.',
-                        [{ text: 'OK', onPress: () => setIsValidating(false) }]
-                    );
+                    setIsValidating(false);
                 }
             }
         }

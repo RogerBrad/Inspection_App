@@ -1,17 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { getDatabase, ref, get } from 'firebase/database';
-
-const CURRENT_USER_ID = 'USER_001'; // Must match ScannerScreen.tsx
+import { offlineStorage } from '../services/offlineStorage';
 
 const DebugScreen = () => {
     const [allocatedInspections, setAllocatedInspections] = useState<any[]>([]);
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [currentUserId, setCurrentUserId] = useState<string>('USER_001');
 
     useEffect(() => {
-        fetchDebugData();
+        const init = async () => {
+            const id = await offlineStorage.getUserId();
+            setCurrentUserId(id);
+            await fetchDebugData();
+        };
+        init();
     }, []);
+
+    async function handleSetUser(uid: string) {
+        await offlineStorage.setUserId(uid);
+        setCurrentUserId(uid);
+        Alert.alert('User Updated', `Technician ID set to: ${uid}`);
+    }
 
     async function fetchDebugData() {
         setLoading(true);
@@ -65,10 +76,10 @@ const DebugScreen = () => {
                     <Text style={styles.sectionTitle}>Current User Configuration</Text>
                     <View style={styles.infoRow}>
                         <Text style={styles.label}>App User ID:</Text>
-                        <Text style={[styles.value, styles.highlight]}>{CURRENT_USER_ID}</Text>
+                        <Text style={[styles.value, styles.highlight]}>{currentUserId}</Text>
                     </View>
                     <Text style={styles.warningText}>
-                        ⚠️ This must match a technician UID in the database
+                        ⚠️ This is the ID used to filter "My Inspections"
                     </Text>
                 </View>
 
@@ -80,11 +91,12 @@ const DebugScreen = () => {
                         <Text style={styles.emptyText}>No inspections allocated</Text>
                     ) : (
                         allocatedInspections.map((item, idx) => (
-                            <View
+                            <TouchableOpacity
                                 key={idx}
+                                onPress={() => item.technicianId && handleSetUser(item.technicianId)}
                                 style={[
                                     styles.inspectionItem,
-                                    item.technicianId === CURRENT_USER_ID && styles.matchedItem
+                                    item.technicianId === currentUserId && styles.matchedItem
                                 ]}
                             >
                                 <Text style={styles.itemTitle}>{item.assetName || 'Unknown Asset'}</Text>
@@ -97,13 +109,13 @@ const DebugScreen = () => {
                                     </Text>
                                     <Text style={[
                                         styles.itemText,
-                                        item.technicianId === CURRENT_USER_ID ? styles.matchText : styles.mismatchText
+                                        item.technicianId === currentUserId ? styles.matchText : styles.mismatchText
                                     ]}>
                                         Tech ID: {item.technicianId}
-                                        {item.technicianId === CURRENT_USER_ID ? ' ✅ MATCH' : ' ❌ NO MATCH'}
+                                        {item.technicianId === currentUserId ? ' ✅ MATCH' : ' 👈 Tap to Select'}
                                     </Text>
                                 </View>
-                            </View>
+                            </TouchableOpacity>
                         ))
                     )}
                 </View>
@@ -116,20 +128,22 @@ const DebugScreen = () => {
                         <Text style={styles.emptyText}>No users found</Text>
                     ) : (
                         users.map((user, idx) => (
-                            <View
+                            <TouchableOpacity
                                 key={idx}
+                                onPress={() => handleSetUser(user.uid)}
                                 style={[
                                     styles.userItem,
-                                    user.uid === CURRENT_USER_ID && styles.matchedItem
+                                    user.uid === currentUserId && styles.matchedItem
                                 ]}
                             >
                                 <Text style={styles.itemTitle}>
                                     {user.name || user.email}
-                                    {user.uid === CURRENT_USER_ID && ' ✅'}
+                                    {user.uid === currentUserId && ' ✅'}
                                 </Text>
                                 <Text style={styles.itemText}>UID: {user.uid}</Text>
                                 <Text style={styles.itemText}>Email: {user.email}</Text>
-                            </View>
+                                {user.uid !== currentUserId && <Text style={{ fontSize: 10, color: '#3b82f6', marginTop: 5 }}>Tap to set as current user</Text>}
+                            </TouchableOpacity>
                         ))
                     )}
                 </View>
@@ -139,25 +153,19 @@ const DebugScreen = () => {
                     <View style={styles.stepContainer}>
                         <Text style={styles.stepNumber}>1.</Text>
                         <Text style={styles.stepText}>
-                            Check if any inspection above shows "✅ MATCH"
+                            Allocated inspections are only shown on "My Inspections" if the Tech ID matches exactly.
                         </Text>
                     </View>
                     <View style={styles.stepContainer}>
                         <Text style={styles.stepNumber}>2.</Text>
                         <Text style={styles.stepText}>
-                            If NO MATCH, copy the correct Tech ID from the allocated inspection
+                            Tap any User or Allocated Inspection above to switch identity.
                         </Text>
                     </View>
                     <View style={styles.stepContainer}>
                         <Text style={styles.stepNumber}>3.</Text>
                         <Text style={styles.stepText}>
-                            Update CURRENT_USER_ID in ScannerScreen.tsx to match
-                        </Text>
-                    </View>
-                    <View style={styles.stepContainer}>
-                        <Text style={styles.stepNumber}>4.</Text>
-                        <Text style={styles.stepText}>
-                            Rebuild the app with: npm run android
+                            Go back to the list and tap SYNC.
                         </Text>
                     </View>
                 </View>

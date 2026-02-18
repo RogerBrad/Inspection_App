@@ -213,9 +213,9 @@ export const rentalAgreementService = {
             const allocatedAgreements: RentalAgreement[] = [];
 
             Object.entries(data).forEach(([key, value]: [string, any]) => {
-                // Filter for "Allocated" status
-                // Optional: Filter by Technician ID if strict assignment is needed
-                if (value.inspectionWorkflow?.status === 'Allocated') {
+                // Filter for "Allocated" status and matching Technician ID
+                if (value.inspectionWorkflow?.status === 'Allocated' &&
+                    value.inspectionWorkflow?.technicianId === currentUserId) {
                     allocatedAgreements.push({
                         ...value,
                         id: key

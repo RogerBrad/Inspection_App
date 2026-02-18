@@ -3,12 +3,17 @@ import { StyleSheet, Text, View, FlatList, TouchableOpacity, ActivityIndicator, 
 import { rentalAgreementService, RentalAgreement } from '../services/rentalAgreementService';
 import NetInfo from "@react-native-community/netinfo";
 import { useIsFocused } from '@react-navigation/native';
+import { offlineStorage } from '../services/offlineStorage';
+
+import { auth } from '../services/firebaseConfig';
+import { signOut } from 'firebase/auth';
 
 const InspectionListScreen = ({ navigation }: any) => {
     const [inspections, setInspections] = useState<RentalAgreement[]>([]);
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
     const [isConnected, setIsConnected] = useState<boolean | null>(true);
+    const [currentUserId, setCurrentUserId] = useState<string>('');
     const isFocused = useIsFocused();
 
     // Load initial data
@@ -17,7 +22,12 @@ const InspectionListScreen = ({ navigation }: any) => {
             setIsConnected(state.isConnected);
         });
 
-        loadInspections();
+        const init = async () => {
+            const userId = await offlineStorage.getUserId();
+            setCurrentUserId(userId);
+            await loadInspections();
+        };
+        init();
 
         return () => unsubscribe();
     }, []);
@@ -25,9 +35,36 @@ const InspectionListScreen = ({ navigation }: any) => {
     // Reload when screen comes into focus
     useEffect(() => {
         if (isFocused) {
-            loadInspections();
+            const refresh = async () => {
+                const userId = await offlineStorage.getUserId();
+                setCurrentUserId(userId);
+                await loadInspections();
+            };
+            refresh();
         }
     }, [isFocused]);
+
+    const handleLogout = async () => {
+        Alert.alert(
+            "Logout",
+            "Are you sure you want to log out?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Logout",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            await signOut(auth);
+                            // Navigation handled by AppNavigator's onAuthStateChanged
+                        } catch (error) {
+                            console.error("Logout error:", error);
+                        }
+                    }
+                }
+            ]
+        );
+    };
 
     const loadInspections = async () => {
         setLoading(true);
@@ -44,12 +81,17 @@ const InspectionListScreen = ({ navigation }: any) => {
 
         setSyncing(true);
         try {
+            const userId = await offlineStorage.getUserId();
+            console.log('Sync: Starting sync for UID:', userId);
+            setCurrentUserId(userId);
+
             // 1. Upload Pending
             const uploadResult = await rentalAgreementService.syncUpCompletedInspections();
+            console.log('Sync: Upload result:', uploadResult.count);
 
             // 2. Download Allocated
-            // TODO: Get actual current user ID
-            const downloadResult = await rentalAgreementService.syncDownAllocatedInspections("USER_001");
+            const downloadResult = await rentalAgreementService.syncDownAllocatedInspections(userId);
+            console.log('Sync: Download result:', downloadResult.count);
 
             let message = "Sync Complete.\n";
             if (uploadResult.count > 0) message += `Uploaded ${uploadResult.count} completed inspections.\n`;
@@ -79,9 +121,8 @@ const InspectionListScreen = ({ navigation }: any) => {
     const renderItem = ({ item }: { item: RentalAgreement }) => (
         <TouchableOpacity
             style={styles.card}
-            onPress={() => navigation.navigate('Details', {
-                data: item.assetDetails?.vin || item.assetDetails?.serialNumber || item.id, // Fallback for barcode param
-                assetCategory: item.assetCategory || 'motor_vehicle', // Default or from inspection workflow
+            onPress={() => navigation.navigate('Scanner', {
+                expectedId: item.assetDetails?.serialNumber || item.assetDetails?.vin || item.id,
                 agreement: item
             })}
         >
@@ -101,14 +142,25 @@ const InspectionListScreen = ({ navigation }: any) => {
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.title}>My Inspections</Text>
-                <TouchableOpacity
-                    style={[styles.syncButton, (!isConnected || syncing) && styles.disabledButton]}
-                    onPress={handleSync}
-                    disabled={!isConnected || syncing}
-                >
-                    {syncing ? <ActivityIndicator color="#fff" /> : <Text style={styles.syncButtonText}>{isConnected ? "SYNC" : "OFFLINE"}</Text>}
-                </TouchableOpacity>
+                <View>
+                    <Text style={styles.title}>My Inspections</Text>
+                    <Text style={styles.subtitle}>ID: {currentUserId || 'loading...'}</Text>
+                </View>
+                <View style={styles.headerActions}>
+                    <TouchableOpacity
+                        style={[styles.syncButton, (!isConnected || syncing) && styles.disabledButton]}
+                        onPress={handleSync}
+                        disabled={!isConnected || syncing}
+                    >
+                        {syncing ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.syncButtonText}>{isConnected ? "SYNC" : "OFFLINE"}</Text>}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.logoutButton}
+                        onPress={handleLogout}
+                    >
+                        <Text style={styles.logoutIcon}>🚪</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {loading ? (
@@ -165,14 +217,36 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#0f172a',
     },
+    subtitle: {
+        fontSize: 12,
+        color: '#64748b',
+        fontWeight: '500',
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     syncButton: {
         backgroundColor: '#3b82f6',
-        paddingHorizontal: 20,
-        paddingVertical: 10,
+        paddingHorizontal: 15,
+        paddingVertical: 8,
         borderRadius: 20,
+        marginRight: 10,
     },
     disabledButton: {
         backgroundColor: '#94a3b8',
+    },
+    logoutButton: {
+        backgroundColor: '#f1f5f9',
+        padding: 8,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    logoutIcon: {
+        fontSize: 16,
     },
     syncButtonText: {
         color: '#fff',
