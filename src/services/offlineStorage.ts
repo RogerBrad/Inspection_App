@@ -14,9 +14,9 @@ export const offlineStorage = {
     async getUserId(): Promise<string> {
         try {
             const id = await AsyncStorage.getItem(STORAGE_KEYS.USER_ID);
-            return id || 'USER_001'; // Default placeholder
+            return id || '';
         } catch (error) {
-            return 'USER_001';
+            return '';
         }
     },
 

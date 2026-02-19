@@ -144,7 +144,7 @@ const LoginScreen = ({ navigation }: any) => {
                 </View>
 
                 <View style={styles.footer}>
-                    <Text style={styles.versionText}>v1.2.0 | Production Release</Text>
+                    <Text style={styles.versionText}>v1.2.4 | Robust Matching Release</Text>
                 </View>
             </ScrollView>
         </KeyboardAvoidingView>

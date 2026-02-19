@@ -26,6 +26,7 @@ export interface InspectionWorkflow {
     status: 'Due' | 'Allocated' | 'In Progress' | 'Passed' | 'Failed' | 'Log Created' | 'Completed';
     technicianId?: string;
     technicianName?: string;
+    technicianEmail?: string;
     allocatedAt?: number;
     completedAt?: number;
     inspectionResults?: {
@@ -190,32 +191,38 @@ export const rentalAgreementService = {
     /**
      * Download all ALLOCATED inspections from Firebase and store locally
      */
-    async syncDownAllocatedInspections(currentUserId: string): Promise<{ success: boolean; count: number }> {
+    async syncDownAllocatedInspections(userEmail: string): Promise<{ success: boolean; count: number; totalInDb: number }> {
         try {
             const netInfo = await NetInfo.fetch();
             if (!netInfo.isConnected) {
                 console.log('Offline: Skipping download');
-                return { success: false, count: 0 };
+                return { success: false, count: 0, totalInDb: 0 };
             }
 
-            // Fetch all rental agreements
-            // Ideally we would query specifically for allocated status, but Firebase RTDB querying is limited
-            // without complex indexing. For now, fetch all active agreement nodes is acceptable for this scale.
             const agreementsRef = ref(realtimeDb, 'rentalAgreements');
             const snapshot = await get(agreementsRef);
 
             if (!snapshot.exists()) {
                 await offlineStorage.saveAgreements([]);
-                return { success: true, count: 0 };
+                return { success: true, count: 0, totalInDb: 0 };
             }
 
             const data = snapshot.val();
+            const allItems = Object.entries(data);
+            const totalInDb = allItems.length;
             const allocatedAgreements: RentalAgreement[] = [];
 
-            Object.entries(data).forEach(([key, value]: [string, any]) => {
-                // Filter for "Allocated" status and matching Technician ID
-                if (value.inspectionWorkflow?.status === 'Allocated' &&
-                    value.inspectionWorkflow?.technicianId === currentUserId) {
+            allItems.forEach(([key, value]: [string, any]) => {
+                const workflow = value.inspectionWorkflow;
+                if (!workflow) return;
+
+                const status = (workflow.status || "").toLowerCase();
+                const techEmail = (workflow.technicianEmail || "").toLowerCase().trim();
+                const techId = (workflow.technicianId || "").toLowerCase().trim();
+                const searchEmail = (userEmail || "").toLowerCase().trim();
+
+                // Match if status is 'allocated' AND email matches EITHER field (robustness)
+                if (status === 'allocated' && (techEmail === searchEmail || techId === searchEmail) && searchEmail !== "") {
                     allocatedAgreements.push({
                         ...value,
                         id: key
@@ -224,11 +231,11 @@ export const rentalAgreementService = {
             });
 
             await offlineStorage.saveAgreements(allocatedAgreements);
-            return { success: true, count: allocatedAgreements.length };
+            return { success: true, count: allocatedAgreements.length, totalInDb };
 
         } catch (error) {
             console.error('Download sync failed:', error);
-            return { success: false, count: 0 };
+            return { success: false, count: 0, totalInDb: 0 };
         }
     },
 

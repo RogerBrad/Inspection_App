@@ -36,7 +36,7 @@ const InspectionListScreen = ({ navigation }: any) => {
     useEffect(() => {
         if (isFocused) {
             const refresh = async () => {
-                const userId = await offlineStorage.getUserId();
+                const userId = auth.currentUser?.uid || await offlineStorage.getUserId();
                 setCurrentUserId(userId);
                 await loadInspections();
             };
@@ -81,8 +81,16 @@ const InspectionListScreen = ({ navigation }: any) => {
 
         setSyncing(true);
         try {
-            const userId = await offlineStorage.getUserId();
-            console.log('Sync: Starting sync for UID:', userId);
+            const userEmail = auth.currentUser?.email || "";
+            const userId = auth.currentUser?.uid || await offlineStorage.getUserId();
+            console.log('Sync: Starting sync for Email:', userEmail);
+
+            if (!userEmail) {
+                Alert.alert("Sync Error", "Email not found. Please log out and back in.");
+                setSyncing(false);
+                return;
+            }
+
             setCurrentUserId(userId);
 
             // 1. Upload Pending
@@ -90,15 +98,18 @@ const InspectionListScreen = ({ navigation }: any) => {
             console.log('Sync: Upload result:', uploadResult.count);
 
             // 2. Download Allocated
-            const downloadResult = await rentalAgreementService.syncDownAllocatedInspections(userId);
+            const downloadResult = await rentalAgreementService.syncDownAllocatedInspections(userEmail);
             console.log('Sync: Download result:', downloadResult.count);
 
-            let message = "Sync Complete.\n";
-            if (uploadResult.count > 0) message += `Uploaded ${uploadResult.count} completed inspections.\n`;
-            if (downloadResult.count > 0) message += `Downloaded ${downloadResult.count} new allocations.`;
+            let message = `Sync Complete.\n\n`;
+            message += `User Email: ${userEmail}\n`;
+            message += `DB Total: ${downloadResult.totalInDb}\n`;
 
-            if (uploadResult.count === 0 && downloadResult.count === 0) {
-                message = "All up to date.";
+            if (uploadResult.count > 0) message += `Uploaded: ${uploadResult.count}\n`;
+            if (downloadResult.count > 0) {
+                message += `Downloaded: ${downloadResult.count} new allocations.`;
+            } else {
+                message += `Allocations: 0 (No matches found for this ID)`;
             }
 
             if (uploadResult.errors.length > 0) {
