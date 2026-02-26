@@ -15,6 +15,7 @@ import InspectionCameraScreen from './screens/InspectionCameraScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import OdometerScanScreen from './screens/OdometerScanScreen';
 import DebugScreen from './screens/DebugScreen';
+import HelpScreen from './screens/HelpScreen';
 
 const Stack = createStackNavigator();
 
@@ -115,6 +116,11 @@ const AppNavigator = () => {
                             name="Debug"
                             component={DebugScreen}
                             options={{ title: '🔧 Debug Info', headerStyle: { backgroundColor: '#3b82f6' }, headerTintColor: '#fff' }}
+                        />
+                        <Stack.Screen
+                            name="Help"
+                            component={HelpScreen}
+                            options={{ headerShown: false }}
                         />
                     </>
                 )}
