@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './services/firebaseConfig';
 import { offlineStorage } from './services/offlineStorage';
 
@@ -38,17 +38,34 @@ const AppNavigator = () => {
             console.log('AppNavigator: Auth state changed. User:', user ? user.uid : 'null');
             try {
                 if (user) {
-                    await offlineStorage.setUserId(user.uid);
-                    setIsLoggedIn(true);
+                    // CRITICAL: Check if we have the mapped profile (Email)
+                    // If we have a user token but NO email in storage, it's likely a 
+                    // restored session from a backup. We must force a logout 
+                    // to ensure they go through the LoginScreen profile search.
+                    const userEmail = await offlineStorage.getUserEmail();
+                    
+                    if (!userEmail) {
+                        console.warn('AppNavigator: User detected but no profile email in storage. Forcing Logout.');
+                        await signOut(auth);
+                        await offlineStorage.setUserId('');
+                        await offlineStorage.setUserEmail('');
+                        setIsLoggedIn(false);
+                    } else {
+                        console.log('AppNavigator: Valid technician session confirmed:', userEmail);
+                        setIsLoggedIn(true);
+                    }
                 } else {
+                    console.log('AppNavigator: No user found, showing Login.');
+                    await offlineStorage.setUserId('');
+                    await offlineStorage.setUserEmail('');
                     setIsLoggedIn(false);
                 }
             } catch (err) {
-                console.error('AppNavigator: Error updating offline storage:', err);
+                console.error('AppNavigator: Session validation error:', err);
+                setIsLoggedIn(false);
             } finally {
                 setLoading(false);
                 clearTimeout(timer);
-                console.log('AppNavigator: Loading set to false');
             }
         });
 

@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getDatabase } from "firebase/database";
-import { initializeAuth, getAuth } from "firebase/auth";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
     apiKey: "AIzaSyA8QZv5ridNnpnV4Y9-xsMZi4d8RJVLyFY",
@@ -18,7 +18,6 @@ console.log('FirebaseConfig: Initializing Firebase App...');
 const app = initializeApp(firebaseConfig);
 
 console.log('FirebaseConfig: Initializing Auth...');
-// Standard Auth initialization
 export const auth = getAuth(app);
 
 // Initialize Firestore with settings appropriate for React Native

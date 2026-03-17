@@ -5,6 +5,8 @@ import { Camera, useCameraDevice, useCodeScanner, useCameraPermission, useCamera
 import { Slider } from '@miblanchard/react-native-slider';
 import { rentalAgreementService } from '../services/rentalAgreementService';
 
+import { auth } from '../services/firebaseConfig';
+import { signOut } from 'firebase/auth';
 import { offlineStorage } from '../services/offlineStorage';
 
 const ScannerScreen = ({ route, navigation }: any) => {
@@ -164,6 +166,9 @@ const ScannerScreen = ({ route, navigation }: any) => {
             />
 
             <View style={styles.overlay}>
+                <View style={{ position: 'absolute', top: 10, alignSelf: 'center' }}>
+                    <Text style={{ color: '#fff', fontSize: 10, opacity: 0.8, backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 10 }}>BUILD: v25-BUNDLE-STABLE</Text>
+                </View>
                 <View style={styles.topControls}>
                     <TouchableOpacity
                         style={styles.debugBtn}
@@ -178,6 +183,20 @@ const ScannerScreen = ({ route, navigation }: any) => {
                     >
                         <Text style={styles.torchIcon}>{torch === 'on' ? '🔦' : '💡'}</Text>
                         <Text style={styles.torchText}>{torch === 'on' ? 'LIGHT ON' : 'TURN LIGHT ON'}</Text>
+                    </TouchableOpacity>
+
+                    {/* EMERGENCY RESET BUTTON */}
+                    <TouchableOpacity
+                        style={[styles.torchBtn, { backgroundColor: 'rgba(239, 68, 68, 0.8)', marginLeft: 10 }]}
+                        onPress={async () => {
+                            await signOut(auth);
+                            await offlineStorage.setUserId('');
+                            await offlineStorage.setUserEmail('');
+                            // AppNavigator will handle the rest
+                        }}
+                    >
+                        <Text style={styles.torchIcon}>🚪</Text>
+                        <Text style={styles.torchText}>RESET / LOGOUT</Text>
                     </TouchableOpacity>
                 </View>
 

@@ -13,16 +13,19 @@ import {
     Image,
     Dimensions
 } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { auth, realtimeDb } from '../services/firebaseConfig';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { offlineStorage } from '../services/offlineStorage';
+import { rentalAgreementService } from '../services/rentalAgreementService';
 
 const { width, height } = Dimensions.get('window');
 
 const LoginScreen = ({ navigation }: any) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
 
     const handleLogin = async () => {
@@ -35,6 +38,15 @@ const LoginScreen = ({ navigation }: any) => {
         }
 
         setLoading(true);
+        
+        // Connectivity check
+        const netState = await NetInfo.fetch();
+        if (!netState.isConnected) {
+            Alert.alert('Network Error', 'No internet connection detected. Please check your Wi-Fi or mobile data.');
+            setLoading(false);
+            return;
+        }
+
         console.log('Attempting login for:', cleanEmail);
         try {
             // 1. Firebase Auth Sign In
@@ -49,20 +61,55 @@ const LoginScreen = ({ navigation }: any) => {
 
             if (snapshot.exists()) {
                 const userData = snapshot.val();
-                console.log('User profile found:', userData.firstName, userData.surname);
+                console.log('User profile found (UID match):', userData.firstName, userData.surname);
 
                 // 3. Save to local storage for persistent session
                 await offlineStorage.setUserId(user.uid);
+                await offlineStorage.setUserEmail(user.email || '');
 
-                // 3. Save to local storage for persistent session
-                await offlineStorage.setUserId(user.uid);
-
-                // 4. Navigation is handled automatically by AppNavigator 
-                // when onAuthStateChanged triggers a re-render
+                // 4. Trigger immediate sync of allocated inspections
+                console.log('Syncing inspections for:', user.email);
+                try {
+                    await rentalAgreementService.syncDownAllocatedInspections(user.email || cleanEmail);
+                } catch (syncError) {
+                    console.error('Initial sync failed:', syncError);
+                }
             } else {
-                console.warn('Auth user exists but no profile found in /User node');
-                // Even if profile missing, we can use the UID
-                await offlineStorage.setUserId(user.uid);
+                console.log('No profile at /User/[UID], trying search by Email...');
+                
+                // Fallback: Search all users for a matching email address
+                const usersRef = ref(realtimeDb, 'User');
+                const allUsersSnapshot = await get(usersRef);
+                
+                let foundByEmail = false;
+                if (allUsersSnapshot.exists()) {
+                    const allUsers = allUsersSnapshot.val();
+                    for (const uid in allUsers) {
+                        if (allUsers[uid].email?.toLowerCase() === user.email?.toLowerCase()) {
+                            console.log('User profile found (Email match):', allUsers[uid].firstName);
+                            await offlineStorage.setUserId(uid);
+                            await offlineStorage.setUserEmail(allUsers[uid].email);
+                            foundByEmail = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!foundByEmail) {
+                    console.warn('Auth user exists but no profile found in /User node (neither UID nor Email)');
+                    // Even if profile missing, we can use the Auth UID as a placeholder
+                    await offlineStorage.setUserId(user.uid);
+                    await offlineStorage.setUserEmail(user.email || '');
+                }
+
+                // Trigger sync anyway since we have an email
+                if (user.email) {
+                    try {
+                        await rentalAgreementService.syncDownAllocatedInspections(user.email);
+                    } catch (syncError) {
+                        console.error('Initial sync failed:', syncError);
+                    }
+                }
             }
         } catch (error: any) {
             console.error('Login error code:', error.code);
@@ -74,8 +121,13 @@ const LoginScreen = ({ navigation }: any) => {
             if (error.code === 'auth/invalid-email') message = 'Invalid email address.';
             if (error.code === 'auth/invalid-credential') message = 'Invalid email or password.';
             if (error.code === 'auth/too-many-requests') message = 'Too many failed attempts. Please try again later.';
+            if (error.code === 'auth/network-request-failed') message = 'Network request failed. Please check your internet connection and try again.';
 
-            Alert.alert('Login Failed', `${message}\n\n(${error.code})`);
+            Alert.alert(
+                'Login Failed', 
+                `${message}\n\nTechnical Error: ${error.code}`,
+                [{ text: "OK" }]
+            );
         } finally {
             setLoading(false);
         }
@@ -91,7 +143,7 @@ const LoginScreen = ({ navigation }: any) => {
                     <View style={styles.logoCircle}>
                         <Text style={styles.logoEmoji}>📦</Text>
                     </View>
-                    <Text style={styles.appTitle}>CReAMer</Text>
+                    <Text style={styles.appTitle}>CReAMer v26-NET-FIX</Text>
                     <Text style={styles.appSubtitle}>Inspection Management System</Text>
                 </View>
 
@@ -115,14 +167,22 @@ const LoginScreen = ({ navigation }: any) => {
 
                         <View style={styles.inputContainer}>
                             <Text style={styles.inputLabel}>PASSWORD</Text>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="••••••••"
-                                placeholderTextColor="#94a3b8"
-                                secureTextEntry
-                                value={password}
-                                onChangeText={setPassword}
-                            />
+                            <View style={styles.passwordInputContainer}>
+                                <TextInput
+                                    style={styles.passwordInput}
+                                    placeholder="••••••••"
+                                    placeholderTextColor="#94a3b8"
+                                    secureTextEntry={!showPassword}
+                                    value={password}
+                                    onChangeText={setPassword}
+                                />
+                                <TouchableOpacity 
+                                    onPress={() => setShowPassword(!showPassword)}
+                                    style={styles.eyeIconContainer}
+                                >
+                                    <Text style={styles.eyeIcon}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
                         <TouchableOpacity
@@ -144,7 +204,7 @@ const LoginScreen = ({ navigation }: any) => {
                 </View>
 
                 <View style={styles.footer}>
-                    <Text style={styles.versionText}>v1.2.4 | Robust Matching Release</Text>
+                    <Text style={styles.versionText}>v26-STABLE | Network Guard Enabled</Text>
                 </View>
             </ScrollView>
         </KeyboardAvoidingView>
@@ -238,6 +298,27 @@ const styles = StyleSheet.create({
         fontSize: 16,
         borderWidth: 1,
         borderColor: '#334155',
+    },
+    passwordInputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#1e293b',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#334155',
+    },
+    passwordInput: {
+        flex: 1,
+        paddingHorizontal: 15,
+        paddingVertical: 12,
+        color: '#fff',
+        fontSize: 16,
+    },
+    eyeIconContainer: {
+        padding: 10,
+    },
+    eyeIcon: {
+        fontSize: 20,
     },
     loginButton: {
         backgroundColor: '#3b82f6',

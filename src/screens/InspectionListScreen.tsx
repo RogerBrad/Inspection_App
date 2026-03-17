@@ -24,8 +24,18 @@ const InspectionListScreen = ({ navigation }: any) => {
 
         const init = async () => {
             const userId = await offlineStorage.getUserId();
+            const userEmailFromStorage = await offlineStorage.getUserEmail();
             setCurrentUserId(userId);
+            
+            // Load what we have locally first for immediate UI
             await loadInspections();
+            
+            // Then trigger a background sync to ensure data is fresh
+            const emailToSync = auth.currentUser?.email || userEmailFromStorage;
+            if (emailToSync) {
+                console.log('InspectionListScreen: Performing auto-sync for:', emailToSync);
+                handleSync(true); 
+            }
         };
         init();
 
@@ -37,6 +47,7 @@ const InspectionListScreen = ({ navigation }: any) => {
         if (isFocused) {
             const refresh = async () => {
                 const userId = auth.currentUser?.uid || await offlineStorage.getUserId();
+                const userEmail = auth.currentUser?.email || await offlineStorage.getUserEmail();
                 setCurrentUserId(userId);
                 await loadInspections();
             };
@@ -73,20 +84,20 @@ const InspectionListScreen = ({ navigation }: any) => {
         setLoading(false);
     };
 
-    const handleSync = async () => {
+    const handleSync = async (silent: boolean = false) => {
         if (!isConnected) {
-            Alert.alert("Offline", "Cannot sync while offline. Please check your internet connection.");
+            if (!silent) Alert.alert("Offline", "Cannot sync while offline. Please check your internet connection.");
             return;
         }
 
         setSyncing(true);
         try {
-            const userEmail = auth.currentUser?.email || "";
             const userId = auth.currentUser?.uid || await offlineStorage.getUserId();
+            const userEmail = auth.currentUser?.email || await offlineStorage.getUserEmail();
             console.log('Sync: Starting sync for Email:', userEmail);
 
             if (!userEmail) {
-                Alert.alert("Sync Error", "Email not found. Please log out and back in.");
+                if (!silent) Alert.alert("Sync Error", "Email not found. Please log out and back in.");
                 setSyncing(false);
                 return;
             }
@@ -112,14 +123,13 @@ const InspectionListScreen = ({ navigation }: any) => {
                 message += `Allocations: 0 (No matches found for this ID)`;
             }
 
-            if (uploadResult.errors.length > 0) {
-                message += `\n\nWarning: ${uploadResult.errors.length} uploads failed.`;
+            if (!silent) {
+                Alert.alert("Sync Status", message);
             }
 
-            Alert.alert("Sync Status", message);
-
-            // Refresh list
-            await loadInspections();
+            // Refresh list from storage regardless of silent mode
+            const updatedLocalData = await rentalAgreementService.getLocalInspections();
+            setInspections(updatedLocalData);
 
         } catch (error) {
             console.error("Sync error:", error);
@@ -155,12 +165,12 @@ const InspectionListScreen = ({ navigation }: any) => {
             <View style={styles.header}>
                 <View>
                     <Text style={styles.title}>My Inspections</Text>
-                    <Text style={styles.subtitle}>ID: {currentUserId || 'loading...'}</Text>
+                    <Text style={styles.subtitle}>{currentUserId || 'Technician'} | {auth.currentUser?.email || 'Syncing...'}</Text>
                 </View>
                 <View style={styles.headerActions}>
                     <TouchableOpacity
                         style={[styles.syncButton, (!isConnected || syncing) && styles.disabledButton]}
-                        onPress={handleSync}
+                        onPress={() => handleSync(false)}
                         disabled={!isConnected || syncing}
                     >
                         {syncing ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.syncButtonText}>{isConnected ? "SYNC" : "OFFLINE"}</Text>}
@@ -185,7 +195,7 @@ const InspectionListScreen = ({ navigation }: any) => {
                     keyExtractor={item => item.id}
                     contentContainerStyle={styles.list}
                     refreshControl={
-                        <RefreshControl refreshing={syncing} onRefresh={handleSync} />
+                        <RefreshControl refreshing={syncing} onRefresh={() => handleSync(false)} />
                     }
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>

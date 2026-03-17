@@ -1,3 +1,4 @@
+import 'react-native-get-random-values';
 import 'react-native-gesture-handler';
 // Polyfill crypto.getRandomValues BEFORE any other imports to avoid Firebase crashes
 if (typeof global.crypto !== 'object') {

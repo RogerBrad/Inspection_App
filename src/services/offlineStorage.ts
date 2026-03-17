@@ -4,7 +4,8 @@ const STORAGE_KEYS = {
     AGREEMENTS: 'offline_agreements',
     PENDING_INSPECTIONS: 'pending_inspections',
     LAST_SYNC: 'last_sync_timestamp',
-    USER_ID: 'app_user_id'
+    USER_ID: 'app_user_id',
+    USER_EMAIL: 'app_user_email'
 };
 
 export const offlineStorage = {
@@ -28,6 +29,29 @@ export const offlineStorage = {
             await AsyncStorage.setItem(STORAGE_KEYS.USER_ID, userId);
         } catch (error) {
             console.error('Failed to set user ID:', error);
+        }
+    },
+
+    /**
+     * Get the current user email
+     */
+    async getUserEmail(): Promise<string> {
+        try {
+            const email = await AsyncStorage.getItem(STORAGE_KEYS.USER_EMAIL);
+            return email || '';
+        } catch (error) {
+            return '';
+        }
+    },
+
+    /**
+     * Set the current user email
+     */
+    async setUserEmail(email: string) {
+        try {
+            await AsyncStorage.setItem(STORAGE_KEYS.USER_EMAIL, email);
+        } catch (error) {
+            console.error('Failed to set user email:', error);
         }
     },
     /**
