@@ -38,17 +38,21 @@ const AppNavigator = () => {
             console.log('AppNavigator: Auth state changed. User:', user ? user.uid : 'null');
             try {
                 if (user) {
-                    // CRITICAL: Check if we have the mapped profile (Email)
-                    // If we have a user token but NO email in storage, it's likely a 
-                    // restored session from a backup. We must force a logout 
-                    // to ensure they go through the LoginScreen profile search.
-                    const userEmail = await offlineStorage.getUserEmail();
+                    // CRITICAL: Check local storage for the technician's profile
+                    let userEmail = await offlineStorage.getUserEmail();
                     
+                    // If storage is empty, we check if this is a fresh login attempt 
+                    // where user.email is present. We'll give it a moment or trust the auth state.
+                    if (!userEmail && user.email) {
+                        console.log('AppNavigator: Storage empty but Firebase user has email. Initializing session...');
+                        await offlineStorage.setUserEmail(user.email);
+                        await offlineStorage.setUserId(user.uid);
+                        userEmail = user.email;
+                    }
+
                     if (!userEmail) {
-                        console.warn('AppNavigator: User detected but no profile email in storage. Forcing Logout.');
+                        console.warn('AppNavigator: User detected but no profile email available. Forcing Logout.');
                         await signOut(auth);
-                        await offlineStorage.setUserId('');
-                        await offlineStorage.setUserEmail('');
                         setIsLoggedIn(false);
                     } else {
                         console.log('AppNavigator: Valid technician session confirmed:', userEmail);
@@ -56,8 +60,7 @@ const AppNavigator = () => {
                     }
                 } else {
                     console.log('AppNavigator: No user found, showing Login.');
-                    await offlineStorage.setUserId('');
-                    await offlineStorage.setUserEmail('');
+                    // Don't clear storage here to avoid losing email for the next attempt if it was a transient logout
                     setIsLoggedIn(false);
                 }
             } catch (err) {

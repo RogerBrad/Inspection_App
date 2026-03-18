@@ -110,20 +110,57 @@ const DetailsScreen = ({ route, navigation }: any) => {
 
     useEffect(() => {
         async function initialize() {
+            setLoading(true);
+            console.log(`[Details] Initializing for asset: ${vin}, Category: ${assetCategory}`);
+            
             try {
-                // 1. Load Config from Firestore
-                const configData = await inspectionService.getConfigByCategory(assetCategory);
+                // 1. Try to fetch primary config
+                console.log(`[Details] Fetching primary config: ${assetCategory}...`);
+                let configData = await inspectionService.getConfigByCategory(assetCategory);
+                
+                // 2. Try secondary category if primary failed
+                if (!configData) {
+                    const backupCat = assetCategory === 'motor_vehicle' ? 'refrigeration' : 'motor_vehicle';
+                    console.log(`[Details] Primary empty, trying backup: ${backupCat}...`);
+                    configData = await inspectionService.getConfigByCategory(backupCat);
+                }
+
+                // 3. Last ditch effort: static fallback from code
+                if (!configData) {
+                    console.log(`[Details] All DB attempts failed. Using static emergency fallback.`);
+                    configData = inspectionService.getStaticFallbackConfig(assetCategory);
+                }
+
+                if (!configData) {
+                    throw new Error("Generic failure to generate inspection checklist.");
+                }
+
+                console.log(`[Details] Config ready:`, configData.inspectionTypes.map(t => t.label));
                 setConfig(configData);
 
-                if (configData && configData.inspectionTypes.length > 0) {
+                if (configData.inspectionTypes.length > 0) {
                     setSelectedType(configData.inspectionTypes[0]);
                 }
 
-                // 2. Load Photo History
-                await refreshPhotos();
-            } catch (error) {
-                console.error("Initialization failed:", error);
-                Alert.alert("Error", "Could not load inspection details.");
+                // 4. Load Photo History (Non-critical, don't throw if it fails)
+                try {
+                    await refreshPhotos();
+                } catch (pe) {
+                    console.warn("[Details] Photo history failed to load:", pe);
+                }
+
+            } catch (error: any) {
+                console.error("[Details] Initialization FAILED:", error);
+                Alert.alert(
+                    "Note", 
+                    "Using local inspection templates (Offline Mode). Some historical data might be unavailable."
+                );
+                // Force a local fallback if we haven't already
+                const emergencyConfig = inspectionService.getStaticFallbackConfig(assetCategory);
+                setConfig(emergencyConfig);
+                if (emergencyConfig.inspectionTypes.length > 0) {
+                    setSelectedType(emergencyConfig.inspectionTypes[0]);
+                }
             } finally {
                 setLoading(false);
             }
@@ -427,10 +464,11 @@ const DetailsScreen = ({ route, navigation }: any) => {
                                                                         <TouchableOpacity
                                                                             style={styles.captureDefectBtn}
                                                                             onPress={() => navigation.navigate('InspectionCamera', {
-                                                                                vin,
-                                                                                registrationNumber,
-                                                                                angle: defectAngle
-                                                                            })}
+                                                                                 vin,
+                                                                                 registrationNumber,
+                                                                                 angle: defectAngle,
+                                                                                 category: assetCategory
+                                                                             })}
                                                                         >
                                                                             <Text style={styles.captureDefectBtnText}>📸 Capture</Text>
                                                                         </TouchableOpacity>
@@ -471,7 +509,7 @@ const DetailsScreen = ({ route, navigation }: any) => {
 
                                 <TouchableOpacity
                                     style={styles.angleCaptureBtn}
-                                    onPress={() => navigation.navigate('InspectionCamera', { vin, registrationNumber, angle: area })}
+                                    onPress={() => navigation.navigate('InspectionCamera', { vin, registrationNumber, angle: area, category: assetCategory })}
                                 >
                                     <Text style={styles.btnTextLower}>📸 Capture</Text>
                                 </TouchableOpacity>

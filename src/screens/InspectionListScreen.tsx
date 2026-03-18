@@ -144,7 +144,8 @@ const InspectionListScreen = ({ navigation }: any) => {
             style={styles.card}
             onPress={() => navigation.navigate('Scanner', {
                 expectedId: item.assetDetails?.serialNumber || item.assetDetails?.vin || item.id,
-                agreement: item
+                agreement: item,
+                assetCategory: 'refrigeration' // Specified by user: manual selection from list = refrigeration
             })}
         >
             <View style={styles.cardHeader}>
@@ -209,7 +210,9 @@ const InspectionListScreen = ({ navigation }: any) => {
             {/* Floating Action Button for Ad-hoc Scan */}
             <TouchableOpacity
                 style={styles.fab}
-                onPress={() => navigation.navigate('Scanner')}
+                onPress={() => navigation.navigate('Scanner', { 
+                    assetCategory: 'motor_vehicle' // Specified by user: ad-hoc scan via camera icon = motor_vehicle
+                })}
             >
                 <Text style={styles.fabIcon}>📷</Text>
             </TouchableOpacity>

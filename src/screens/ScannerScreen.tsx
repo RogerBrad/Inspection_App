@@ -11,7 +11,7 @@ import { offlineStorage } from '../services/offlineStorage';
 
 const ScannerScreen = ({ route, navigation }: any) => {
     // optional params when coming from Inspection List
-    const { expectedId, agreement } = route.params || {};
+    const { expectedId, agreement, assetCategory: paramCategory } = route.params || {};
 
     // Some devices have multiple back cameras (wide, telephoto), 
     const isFocused = useIsFocused();
@@ -70,49 +70,40 @@ const ScannerScreen = ({ route, navigation }: any) => {
                 console.log('Raw:', scannedValue, 'Cleaned:', cleanedValue, 'Type:', scannedType);
 
                 // If we are expecting a specific ID (from the List), check it now
-                if (expectedId) {
-                    if (cleanedValue !== expectedId) {
-                        Alert.alert(
-                            'Incorrect Asset',
-                            `You scanned: ${cleanedValue}\nExpected: ${expectedId}\n\nPlease scan the correct item.`,
-                            [{ text: 'OK', onPress: () => setIsValidating(false) }]
-                        );
-                        return;
-                    }
-                    console.log('Match confirmed for expected ID:', expectedId);
-                }
-
                 try {
-                    let targetAgreement = agreement;
-                    let targetCategory = agreement?.assetCategory;
-
-                    // If it's a Vehicle (PDF-417), go straight in without DB validation if no agreement is provided
-                    const isPDF417 = scannedType === 'pdf-417';
-
-                    if (!targetAgreement && !isPDF417) {
-                        const validation = await rentalAgreementService.validateAndGetAgreement(cleanedValue, currentUserId);
-                        if (!validation.valid) {
-                            Alert.alert('Error', validation.error || 'Inspection not available.', [{ text: 'OK', onPress: () => setIsValidating(false) }]);
+                    // 1. Direct key match if we are coming from an allocated inspection
+                    if (expectedId) {
+                        if (cleanedValue !== expectedId) {
+                            Alert.alert(
+                                'Incorrect Asset',
+                                `You scanned: ${cleanedValue}\nExpected: ${expectedId}`,
+                                [{ text: 'OK', onPress: () => setIsValidating(false) }]
+                            );
                             return;
                         }
-                        targetAgreement = validation.agreement;
-                        targetCategory = targetAgreement?.assetCategory;
+                        console.log('Match confirmed for expected ID:', expectedId);
+                        
+                        navigation.navigate('Details', {
+                            data: cleanedValue,
+                            scannedType: scannedType,
+                            assetCategory: paramCategory || 'motor_vehicle',
+                            agreement: agreement
+                        });
+                        setIsValidating(false);
+                        return;
                     }
 
-                    // Fallback category logic
-                    if (!targetCategory) {
-                        targetCategory = isPDF417 ? 'motor_vehicle' : 'refrigeration';
-                    }
-
+                    // 2. Fallback for Ad-hoc scanning (no expectedId)
+                    // Skip database lookup as per user request to allow ad-hoc inspections (Step Id: 957)
                     navigation.navigate('Details', {
                         data: cleanedValue,
                         scannedType: scannedType,
-                        assetCategory: targetCategory,
-                        agreement: targetAgreement
+                        assetCategory: paramCategory || 'motor_vehicle',
+                        agreement: null // Ad-hoc scans don't have a pre-linked agreement
                     });
                     setIsValidating(false);
                 } catch (error) {
-                    console.error('Validation error:', error);
+                    console.error('Scanner error:', error);
                     setIsValidating(false);
                 }
             }

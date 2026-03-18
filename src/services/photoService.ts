@@ -29,7 +29,7 @@ export const photoService = {
     /**
      * Uploads a photo to Firebase Storage and saves the record to Firestore
      */
-    async saveVehiclePhoto(uri: string, vehicleData: any, angle: string) {
+    async saveVehiclePhoto(uri: string, vehicleData: any, angle: string, category: string = 'vehicles') {
         let photoUrl = ''; // Hoisted for access in fallback
 
         try {
@@ -59,7 +59,10 @@ export const photoService = {
             console.log(`Blob created successfully. Size: ${blob.size} bytes`);
 
             const timestamp = Date.now();
-            const filename = `vehicles/${vehicleData.vin || 'unknown'}/${timestamp}_${angle}.jpg`;
+            // Sanitize ID for path
+            const assetId = (vehicleData.vin || 'unknown').replace(/[\s\/\#\?\[\]]/g, '_');
+            const rootFolder = category === 'refrigeration' ? 'refrigeration' : 'vehicles';
+            const filename = `${rootFolder}/${assetId}/${timestamp}_${angle}.jpg`;
             const storageRef = ref(storage, filename);
 
             console.log("Starting upload to path:", filename);
@@ -179,15 +182,25 @@ export const photoService = {
         try {
             const q = query(
                 collection(db, COLLECTION_NAME),
-                where('vin', '==', vin),
-                orderBy('timestamp', 'desc')
+                where('vin', '==', vin)
             );
 
             const querySnapshot = await getDocs(q);
-            return querySnapshot.docs.map(doc => ({
+            const photos = querySnapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as VehiclePhoto));
+
+            // Sort client-side to avoid needing a composite index in Firestore
+            return photos.sort((a, b) => {
+                const getTime = (ts: any) => {
+                    if (!ts) return 0;
+                    if (ts.toMillis) return ts.toMillis();
+                    if (ts.seconds) return ts.seconds * 1000;
+                    return new Date(ts).getTime();
+                };
+                return getTime(b.timestamp) - getTime(a.timestamp);
+            });
         } catch (error) {
             console.error("Error fetching photos:", error);
             throw error;
@@ -202,16 +215,29 @@ export const photoService = {
             const q = query(
                 collection(db, COLLECTION_NAME),
                 where('vin', '==', vin),
-                where('angle', '==', angle),
-                orderBy('timestamp', 'desc')
-                // Note: You may need a Firestore composite index for this query
+                where('angle', '==', angle)
             );
 
             const querySnapshot = await getDocs(q);
             if (querySnapshot.empty) return null;
 
-            const doc = querySnapshot.docs[0];
-            return { id: doc.id, ...doc.data() } as VehiclePhoto;
+            const photos = querySnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            } as VehiclePhoto));
+
+            // Sort client-side
+            photos.sort((a, b) => {
+                const getTime = (ts: any) => {
+                    if (!ts) return 0;
+                    if (ts.toMillis) return ts.toMillis();
+                    if (ts.seconds) return ts.seconds * 1000;
+                    return new Date(ts).getTime();
+                };
+                return getTime(b.timestamp) - getTime(a.timestamp);
+            });
+
+            return photos[0];
         } catch (error) {
             console.error("Error fetching latest photo:", error);
             throw error;

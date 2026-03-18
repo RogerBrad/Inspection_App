@@ -5,7 +5,7 @@ import { Camera, useCameraDevice, useCameraPermission, useCameraDevices } from '
 import { photoService } from '../services/photoService';
 
 const InspectionCameraScreen = ({ route, navigation }: any) => {
-    const { vin, registrationNumber, angle = 'front' } = route.params;
+    const { vin, registrationNumber, angle = 'front', category = 'motor_vehicle' } = route.params;
     const isFocused = useIsFocused();
     const { hasPermission, requestPermission } = useCameraPermission();
 
@@ -90,7 +90,8 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
                 await photoService.saveVehiclePhoto(
                     photoUri,
                     { vin, registrationNumber },
-                    angle
+                    angle,
+                    category
                 );
 
                 console.log("Photo saved successfully.");

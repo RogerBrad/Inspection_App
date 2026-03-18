@@ -136,6 +136,43 @@ export const inspectionService = {
     },
 
     /**
+     * Provides a hardcoded fallback if the database cannot be reached
+     */
+    getStaticFallbackConfig(category: string): InspectionConfig {
+        if (category === 'refrigeration') {
+            return {
+                category: 'refrigeration',
+                areas: ['Compressor', 'Condenser', 'Evaporator', 'Control Panel', 'Door Seals'],
+                inspectionTypes: [
+                    {
+                        id: 'grv_inspection',
+                        label: 'GRV Inspection (LOCAL)',
+                        items: [
+                            { label: 'Verification', subItems: ['Model Match', 'Serial Number Scan', 'Voltage Rating'] },
+                            { label: 'Physical', subItems: ['Dents/Scratches', 'Paint Finish', 'Gasket Condition'] },
+                        ]
+                    }
+                ]
+            };
+        }
+        return {
+            category: 'motor_vehicle' as any,
+            areas: ['Front', 'Rear', 'Left', 'Right', 'Interior', 'Engine'],
+            inspectionTypes: [
+                {
+                    id: 'road_worthy',
+                    label: 'Road Worthy (LOCAL)',
+                    items: [
+                        { label: 'Tires', subItems: ['Front Left', 'Front Right', 'Rear Left', 'Rear Right'] },
+                        { label: 'Lights', subItems: ['Headlights', 'Indicators', 'Brake Lights'] },
+                        { label: 'Brakes', subItems: ['Fluid Level', 'Handbrake'] },
+                    ]
+                }
+            ]
+        };
+    },
+
+    /**
      * Saves a completed inspection to Firestore
      */
     async saveInspection(record: Omit<InspectionRecord, 'timestamp'>) {
