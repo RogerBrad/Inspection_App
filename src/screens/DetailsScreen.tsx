@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, Alert, TextInput, Image, Modal, Pressable } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { photoService, VehiclePhoto } from '../services/photoService';
@@ -21,7 +21,25 @@ const DetailsScreen = ({ route, navigation }: any) => {
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [odometer, setOdometer] = useState('');
+    const [isAtBottom, setIsAtBottom] = useState(false);
+    const [globalFontScale, setGlobalFontScale] = useState(1);
     const isFocused = useIsFocused();
+
+    const startScale = useRef(1);
+    const screenPinchGesture = Gesture.Pinch()
+        .enabled(!viewerUrl)
+        .onStart(() => {
+            startScale.current = globalFontScale;
+        })
+        .onUpdate((e) => {
+            const newScale = startScale.current * e.scale;
+            // Limit scale between 0.6x and 2.0x
+            const clampedScale = Math.max(0.6, Math.min(2.0, newScale));
+            setGlobalFontScale(clampedScale);
+        })
+        .runOnJS(true);
+
+    const styles = useMemo(() => getStyles(globalFontScale), [globalFontScale]);
 
     // Zoom and Pan for Single Photo Viewer
     const scale = useSharedValue(1);
@@ -216,20 +234,61 @@ const DetailsScreen = ({ route, navigation }: any) => {
     const handleSaveInspection = async () => {
         if (!selectedType) return;
 
+        // Calculate counts for confirmation
+        let passCount = 0;
+        let failCount = 0;
+        selectedType.items.forEach(mainItem => {
+            mainItem.subItems.forEach(sub => {
+                const key = `${mainItem.label}_${sub}`;
+                const status = subItemStatus[key];
+                if (status === 'pass') passCount++;
+                if (status === 'fail') failCount++;
+            });
+        });
+
+        const totalItems = selectedType.items.reduce((acc, item) => acc + item.subItems.length, 0);
+        const completedItems = passCount + failCount;
+
+        if (completedItems === 0) {
+            Alert.alert("Incomplete", "Please complete at least one inspection item.");
+            return;
+        }
+
+        // Require odometer for vehicle inspections
+        if (isVehicle && !odometer) {
+            Alert.alert("Odometer Required", "Please enter the odometer reading before saving.");
+            return;
+        }
+
+        Alert.alert(
+            "Finish & Save?",
+            `Summary of Inspection:\n\n` +
+            `✅ Passed: ${passCount}\n` +
+            `⚠️ Failed: ${failCount}\n` +
+            `Total Items: ${completedItems} / ${totalItems}\n\n` +
+            `Are you sure you have completed the inspection items?`,
+            [
+                { text: "Cancel", style: "cancel" },
+                { 
+                    text: "Save & Submit", 
+                    onPress: () => performSave(passCount, failCount)
+                }
+            ]
+        );
+    };
+
+    const performSave = async (passCount: number, failCount: number) => {
+        if (!selectedType) return;
+
         setIsSaving(true);
         try {
             const results: any[] = [];
-            let passCount = 0;
-            let failCount = 0;
-
-            // Iterate through the actual items from the selected config to capture results
+            
+            // Re-capture results for the save payload
             selectedType.items.forEach(mainItem => {
                 mainItem.subItems.forEach(sub => {
                     const key = `${mainItem.label}_${sub}`;
                     const status = subItemStatus[key];
-
-                    if (status === 'pass') passCount++;
-                    if (status === 'fail') failCount++;
 
                     if (status) {
                         results.push({
@@ -241,19 +300,6 @@ const DetailsScreen = ({ route, navigation }: any) => {
                     }
                 });
             });
-
-            if (results.length === 0) {
-                Alert.alert("Incomplete", "Please complete at least one inspection item.");
-                setIsSaving(false);
-                return;
-            }
-
-            // Require odometer for vehicle inspections
-            if (isVehicle && !odometer) {
-                Alert.alert("Odometer Required", "Please enter the odometer reading before saving.");
-                setIsSaving(false);
-                return;
-            }
 
             // Determine overall pass/fail
             const overallPassed = failCount === 0;
@@ -343,7 +389,9 @@ const DetailsScreen = ({ route, navigation }: any) => {
     );
 
     return (
-        <View style={styles.container}>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+            <GestureDetector gesture={screenPinchGesture}>
+                <View style={styles.container}>
             <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
             {/* Header Area */}
@@ -364,7 +412,18 @@ const DetailsScreen = ({ route, navigation }: any) => {
                 {isVehicle && <Text style={styles.regBadge}>{registrationNumber}</Text>}
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView 
+                showsVerticalScrollIndicator={false}
+                onScroll={(e) => {
+                    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+                    const paddingToBottom = 100; // Trigger slightly before the very end
+                    const atBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+                    if (atBottom !== isAtBottom) {
+                        setIsAtBottom(atBottom);
+                    }
+                }}
+                scrollEventThrottle={16}
+            >
                 {/* 1. Inspection Type Selector */}
                 <View style={styles.tabsContainer}>
                     <Text style={styles.sectionTitle}>Select Inspection Type</Text>
@@ -558,19 +617,21 @@ const DetailsScreen = ({ route, navigation }: any) => {
                 <View style={{ height: 100 }} />
             </ScrollView>
 
-            <View style={styles.footer}>
-                <TouchableOpacity
-                    style={[styles.mainButton, isSaving && { opacity: 0.7 }]}
-                    onPress={handleSaveInspection}
-                    disabled={isSaving}
-                >
-                    {isSaving ? (
-                        <ActivityIndicator color="#fff" />
-                    ) : (
-                        <Text style={styles.mainButtonText}>Finish & Save Inspection</Text>
-                    )}
-                </TouchableOpacity>
-            </View>
+            {isAtBottom && (
+                <View style={styles.footer}>
+                    <TouchableOpacity
+                        style={[styles.mainButton, isSaving && { opacity: 0.7 }]}
+                        onPress={handleSaveInspection}
+                        disabled={isSaving}
+                    >
+                        {isSaving ? (
+                            <ActivityIndicator color="#fff" />
+                        ) : (
+                            <Text style={styles.mainButtonText}>Finish & Save Inspection</Text>
+                        )}
+                    </TouchableOpacity>
+                </View>
+            )}
 
             {/* Photo Viewer Modal */}
             <Modal
@@ -602,11 +663,13 @@ const DetailsScreen = ({ route, navigation }: any) => {
                     </Pressable>
                 </GestureHandlerRootView>
             </Modal>
-        </View>
+                </View>
+            </GestureDetector>
+        </GestureHandlerRootView>
     );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (fs: number) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#f8fafc',
@@ -619,7 +682,7 @@ const styles = StyleSheet.create({
     },
     loadingText: {
         marginTop: 15,
-        fontSize: 16,
+        fontSize: 16 * fs,
         color: '#64748b',
         fontWeight: '500',
     },
@@ -635,7 +698,7 @@ const styles = StyleSheet.create({
         borderBottomColor: '#f1f5f9',
     },
     categoryLabel: {
-        fontSize: 10,
+        fontSize: 10 * fs,
         fontWeight: '900',
         color: '#3b82f6',
         letterSpacing: 1.5,
@@ -649,7 +712,7 @@ const styles = StyleSheet.create({
     },
     title: {
         flex: 1,
-        fontSize: 24,
+        fontSize: 24 * fs,
         fontWeight: '800',
         color: '#0f172a',
     },
@@ -663,19 +726,19 @@ const styles = StyleSheet.create({
         marginLeft: 10,
     },
     historyNavBtnText: {
-        fontSize: 12,
+        fontSize: 12 * fs,
         fontWeight: '800',
         color: '#3b82f6',
     },
     identifierText: {
-        fontSize: 14,
+        fontSize: 14 * fs,
         color: '#64748b',
         fontFamily: 'monospace',
     },
     regBadge: {
         backgroundColor: '#fef3c7',
         color: '#92400e',
-        fontSize: 14,
+        fontSize: 14 * fs,
         fontWeight: '800',
         paddingHorizontal: 12,
         paddingVertical: 6,
@@ -684,7 +747,7 @@ const styles = StyleSheet.create({
         borderColor: '#fde68a',
     },
     sectionTitle: {
-        fontSize: 14,
+        fontSize: 14 * fs,
         fontWeight: '700',
         color: '#475569',
         marginBottom: 16,
@@ -712,7 +775,7 @@ const styles = StyleSheet.create({
         borderColor: '#0f172a',
     },
     tabText: {
-        fontSize: 14,
+        fontSize: 14 * fs,
         fontWeight: '600',
         color: '#64748b',
     },
@@ -745,7 +808,7 @@ const styles = StyleSheet.create({
         borderBottomColor: '#f1f5f9',
     },
     mainItemLabel: {
-        fontSize: 15,
+        fontSize: 15 * fs,
         fontWeight: '800',
         color: '#334155',
         letterSpacing: 0.5,
@@ -773,7 +836,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderRadius: 10,
         padding: 12,
-        fontSize: 14,
+        fontSize: 14 * fs,
         color: '#1e293b',
         borderWidth: 1,
         borderColor: '#fecaca',
@@ -813,11 +876,11 @@ const styles = StyleSheet.create({
     },
     checkMarkSmall: {
         color: '#fff',
-        fontSize: 10,
+        fontSize: 10 * fs,
         fontWeight: 'bold',
     },
     photoToggleText: {
-        fontSize: 12,
+        fontSize: 12 * fs,
         color: '#94a3b8',
         fontWeight: '600',
     },
@@ -832,7 +895,7 @@ const styles = StyleSheet.create({
     },
     captureDefectBtnText: {
         color: '#fff',
-        fontSize: 12,
+        fontSize: 12 * fs,
         fontWeight: '700',
     },
     viewDefectBtn: {
@@ -843,7 +906,7 @@ const styles = StyleSheet.create({
     },
     viewDefectBtnText: {
         color: '#fff',
-        fontSize: 12,
+        fontSize: 12 * fs,
         fontWeight: '700',
     },
     modalOverlay: {
@@ -873,11 +936,11 @@ const styles = StyleSheet.create({
     closeModalBtnText: {
         color: '#000',
         fontWeight: '900',
-        fontSize: 14,
+        fontSize: 14 * fs,
     },
     subItemText: {
         flex: 1,
-        fontSize: 14,
+        fontSize: 14 * fs,
         color: '#475569',
         fontWeight: '500',
     },
@@ -894,7 +957,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
     },
     radioText: {
-        fontSize: 10,
+        fontSize: 10 * fs,
         fontWeight: '900',
         color: '#94a3b8',
     },
@@ -940,7 +1003,7 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     angleLabel: {
-        fontSize: 11,
+        fontSize: 11 * fs,
         fontWeight: '800',
         color: '#64748b',
     },
@@ -967,12 +1030,12 @@ const styles = StyleSheet.create({
     },
     btnTextLower: {
         color: '#fff',
-        fontSize: 12,
+        fontSize: 12 * fs,
         fontWeight: '700',
     },
     compareBtnTextSmall: {
         color: '#3b82f6',
-        fontSize: 12,
+        fontSize: 12 * fs,
         fontWeight: '700',
     },
     footer: {
@@ -994,7 +1057,7 @@ const styles = StyleSheet.create({
     },
     mainButtonText: {
         color: '#fff',
-        fontSize: 16,
+        fontSize: 16 * fs,
         fontWeight: '700',
         letterSpacing: 0.5,
     },
@@ -1011,7 +1074,7 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     odoLabel: {
-        fontSize: 10,
+        fontSize: 10 * fs,
         fontWeight: '900',
         color: '#64748b',
         marginBottom: 12,
@@ -1029,7 +1092,7 @@ const styles = StyleSheet.create({
         padding: 15,
         borderWidth: 1,
         borderColor: '#e2e8f0',
-        fontSize: 20,
+        fontSize: 20 * fs,
         fontWeight: '700',
         color: '#0f172a',
     },
@@ -1042,10 +1105,10 @@ const styles = StyleSheet.create({
     odoScanBtnText: {
         color: '#fff',
         fontWeight: '800',
-        fontSize: 12,
+        fontSize: 12 * fs,
     },
     odoHint: {
-        fontSize: 12,
+        fontSize: 12 * fs,
         color: '#94a3b8',
         marginTop: 12,
         fontStyle: 'italic',
