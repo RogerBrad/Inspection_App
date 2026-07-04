@@ -1,7 +1,7 @@
 // import 'react-native-get-random-values'; // REMOVED: Causing TurboModule crash in production
 import 'react-native-gesture-handler';
 
-// Polyfill crypto.getRandomValues BEFORE any other imports to avoid Firebase crashes
+// Polyfill crypto.getRandomValues BEFORE any other imports for compatibility
 // This JS-only polyfill replaces the failing native module
 if (typeof global.crypto !== 'object') {
     global.crypto = {};

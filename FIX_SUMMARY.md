@@ -14,7 +14,7 @@ In `src/screens/ScannerScreen.tsx` line 13:
 const CURRENT_USER_ID = 'USER_001'; // Hardcoded value
 ```
 
-When the SRAM dashboard allocates an inspection to a technician, it uses their actual Firebase UID. The mobile app validation checks if the scanned item's assigned technician matches `CURRENT_USER_ID`, and when it doesn't match, you get "Inspection Not Available".
+When the SRAM dashboard allocates an inspection to a technician, it uses their actual backend user ID. The mobile app validation checks if the scanned item's assigned technician matches `CURRENT_USER_ID`, and when it doesn't match, you get "Inspection Not Available".
 
 ## Solution Added: Debug Screen 🔧
 
@@ -26,7 +26,7 @@ I've added a new **Debug Screen** to help you quickly identify and fix this issu
 3. **Visual Matching**: 
    - ✅ **GREEN** highlighting when IDs match
    - ❌ **RED** text when IDs don't match
-4. **User Directory**: Lists all users from Firebase with their UIDs
+4. **User Directory**: Lists all users from the backend with their UIDs
 5. **Step-by-step Guide**: Built-in troubleshooting instructions
 
 ### How to Use:
@@ -50,7 +50,7 @@ I've added a new **Debug Screen** to help you quickly identify and fix this issu
 2. **`src/screens/DebugScreen.tsx`** (NEW)
    - Complete diagnostic screen showing user IDs and inspection allocations
    - Color-coded matching/mismatching indicators
-   - Live data from Firebase
+   - Live data from the backend
 
 3. **`src/AppNavigator.tsx`**
    - Added Debug screen to navigation
@@ -84,12 +84,12 @@ I've added a new **Debug Screen** to help you quickly identify and fix this issu
    - Rebuild
    
    **Option B - Create Test User**:
-   - Add a user with UID `USER_001` in Firebase
+   - Add a user with UID `USER_001` in the backend
    - Allocate inspections to this test user
    - App will match correctly
    
    **Option C - Implement Authentication** (Proper Solution):
-   - Add Firebase Auth to the app
+   - Add authentication to the app
    - Create login screen
    - Use authenticated user's UID instead of hardcoded value
 
@@ -99,7 +99,7 @@ I've added a new **Debug Screen** to help you quickly identify and fix this issu
 - User scans barcode
 - Gets vague "Inspection Not Available" error
 - No way to know WHY it failed
-- Had to use ADB logs or Firebase Console to debug
+- Had to use ADB logs or backend admin logs to debug
 
 ### After:
 - User scans barcode
@@ -155,7 +155,7 @@ The inspection with MATCH is what you can successfully scan!
 
 2. **Without changing code**:
    - Only inspections allocated to `USER_001` will work
-   - Create a test user in Firebase with this UID
+   - Create a test user in the backend with this UID
    - Or allocate existing inspections to a user you create with UID `USER_001`
 
 3. **With code change**:

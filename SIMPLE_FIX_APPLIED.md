@@ -79,7 +79,7 @@ You can now test immediately without any configuration:
 
 | Error | Meaning | Fix |
 |-------|---------|-----|
-| "No rental agreement found for serial number: XXX" | The scanned value doesn't match any asset in the database | Check if the serial number is correct in Firebase |
+| "No rental agreement found for serial number: XXX" | The scanned value doesn't match any asset in the database | Check if the serial number is correct in the backend database |
 | "No inspection has been allocated for this asset" | The rental agreement exists but has no `inspectionWorkflow` | Allocate an inspection in SRAM dashboard |
 | "Inspection status is 'Due'. Only 'Allocated' inspections can be performed." | The workflow exists but hasn't been allocated to a technician yet | Click "Allocate" in SRAM dashboard |
 

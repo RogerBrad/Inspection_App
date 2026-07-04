@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from './services/firebaseConfig';
+import { supabase } from './services/supabaseClient';
 import { offlineStorage } from './services/offlineStorage';
 
 import LoginScreen from './screens/LoginScreen';
@@ -34,8 +33,7 @@ const AppNavigator = () => {
             }
         }, 5000);
 
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            console.log('AppNavigator: Auth state changed. User:', user ? user.uid : 'null');
+        const handleUserSession = async (user: any) => {
             try {
                 if (user) {
                     // CRITICAL: Check local storage for the technician's profile
@@ -44,15 +42,15 @@ const AppNavigator = () => {
                     // If storage is empty, we check if this is a fresh login attempt 
                     // where user.email is present. We'll give it a moment or trust the auth state.
                     if (!userEmail && user.email) {
-                        console.log('AppNavigator: Storage empty but Firebase user has email. Initializing session...');
+                        console.log('AppNavigator: Storage empty but Supabase user has email. Initializing session...');
                         await offlineStorage.setUserEmail(user.email);
-                        await offlineStorage.setUserId(user.uid);
+                        await offlineStorage.setUserId(user.id);
                         userEmail = user.email;
                     }
 
                     if (!userEmail) {
                         console.warn('AppNavigator: User detected but no profile email available. Forcing Logout.');
-                        await signOut(auth);
+                        await supabase.auth.signOut();
                         setIsLoggedIn(false);
                     } else {
                         console.log('AppNavigator: Valid technician session confirmed:', userEmail);
@@ -68,12 +66,22 @@ const AppNavigator = () => {
                 setIsLoggedIn(false);
             } finally {
                 setLoading(false);
-                clearTimeout(timer);
             }
+        };
+
+        // Initialize session check
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            handleUserSession(session?.user || null);
+        });
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            console.log('AppNavigator: Auth state changed. Event:', event, 'User:', session?.user ? session.user.id : 'null');
+            await handleUserSession(session?.user || null);
         });
 
         return () => {
-            unsubscribe();
+            subscription.unsubscribe();
             clearTimeout(timer);
         };
     }, []);

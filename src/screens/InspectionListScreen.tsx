@@ -5,8 +5,7 @@ import NetInfo from "@react-native-community/netinfo";
 import { useIsFocused } from '@react-navigation/native';
 import { offlineStorage } from '../services/offlineStorage';
 
-import { auth } from '../services/firebaseConfig';
-import { signOut } from 'firebase/auth';
+import { supabase } from '../services/supabaseClient';
 
 const InspectionListScreen = ({ navigation }: any) => {
     const [inspections, setInspections] = useState<RentalAgreement[]>([]);
@@ -31,10 +30,10 @@ const InspectionListScreen = ({ navigation }: any) => {
             await loadInspections();
             
             // Then trigger a background sync to ensure data is fresh
-            const emailToSync = auth.currentUser?.email || userEmailFromStorage;
+            const emailToSync = userEmailFromStorage;
             if (emailToSync) {
                 console.log('InspectionListScreen: Performing auto-sync for:', emailToSync);
-                handleSync(true); 
+                handleSync(true);
             }
         };
         init();
@@ -46,8 +45,7 @@ const InspectionListScreen = ({ navigation }: any) => {
     useEffect(() => {
         if (isFocused) {
             const refresh = async () => {
-                const userId = auth.currentUser?.uid || await offlineStorage.getUserId();
-                const userEmail = auth.currentUser?.email || await offlineStorage.getUserEmail();
+                const userId = await offlineStorage.getUserId();
                 setCurrentUserId(userId);
                 await loadInspections();
             };
@@ -66,8 +64,10 @@ const InspectionListScreen = ({ navigation }: any) => {
                     style: "destructive",
                     onPress: async () => {
                         try {
-                            await signOut(auth);
-                            // Navigation handled by AppNavigator's onAuthStateChanged
+                            await supabase.auth.signOut();
+                            await offlineStorage.setUserId('');
+                            await offlineStorage.setUserEmail('');
+                            // Navigation handled by AppNavigator's auth listener
                         } catch (error) {
                             console.error("Logout error:", error);
                         }
@@ -92,8 +92,8 @@ const InspectionListScreen = ({ navigation }: any) => {
 
         setSyncing(true);
         try {
-            const userId = auth.currentUser?.uid || await offlineStorage.getUserId();
-            const userEmail = auth.currentUser?.email || await offlineStorage.getUserEmail();
+            const userId = await offlineStorage.getUserId();
+            const userEmail = await offlineStorage.getUserEmail();
             console.log('Sync: Starting sync for Email:', userEmail);
 
             if (!userEmail) {
@@ -166,7 +166,7 @@ const InspectionListScreen = ({ navigation }: any) => {
             <View style={styles.header}>
                 <View>
                     <Text style={styles.title}>My Inspections</Text>
-                    <Text style={styles.subtitle}>{currentUserId || 'Technician'} | {auth.currentUser?.email || 'Syncing...'}</Text>
+                    <Text style={styles.subtitle}>{currentUserId || 'Technician'}</Text>
                 </View>
                 <View style={styles.headerActions}>
                     <TouchableOpacity

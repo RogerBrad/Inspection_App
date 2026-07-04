@@ -14,9 +14,9 @@
 - [ ] **Initial Sync**: Connect to Wi-Fi/Data. Tap SYNC. Verify "Download Successful" or similar message.
 - [ ] **Offline Test**: Turn off Wi-Fi/Data. Create a test inspection. Save. Verify "Saved Offline" alert.
 - [ ] **Re-Sync**: Turn on Wi-Fi/Data. Tap SYNC. Verify "Uploaded 1 inspection" message.
-- [ ] **Verify Database**: Check Firebase Console -> `rentalAgreements/{id}/inspectionWorkflow` to see the update.
+- [ ] **Verify Database**: Check the backend database -> `rentalAgreements/{id}/inspectionWorkflow` to see the update.
 
 ## Troubleshooting
-- **Sync Fails**: Ensure good internet connection. Check if `google-services.json` is correct for the build type.
+- **Sync Fails**: Ensure good internet connection. Check build configuration and that the app is pointed at the correct backend.
 - **App Crashes**: Check Logcat for native crashes (e.g. `adb logcat | grep "AndroidRuntime"`).
 - **Camera Error**: Ensure camera permission is granted in Android Settings -> Apps -> Inspection -> Permissions.

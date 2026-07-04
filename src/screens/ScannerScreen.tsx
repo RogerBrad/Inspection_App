@@ -5,8 +5,7 @@ import { Camera, useCameraDevice, useCodeScanner, useCameraPermission, useCamera
 import { Slider } from '@miblanchard/react-native-slider';
 import { rentalAgreementService } from '../services/rentalAgreementService';
 
-import { auth } from '../services/firebaseConfig';
-import { signOut } from 'firebase/auth';
+import { supabase } from '../services/supabaseClient';
 import { offlineStorage } from '../services/offlineStorage';
 
 const ScannerScreen = ({ route, navigation }: any) => {
@@ -180,7 +179,7 @@ const ScannerScreen = ({ route, navigation }: any) => {
                     <TouchableOpacity
                         style={[styles.torchBtn, { backgroundColor: 'rgba(239, 68, 68, 0.8)', marginLeft: 10 }]}
                         onPress={async () => {
-                            await signOut(auth);
+                            await supabase.auth.signOut();
                             await offlineStorage.setUserId('');
                             await offlineStorage.setUserEmail('');
                             // AppNavigator will handle the rest

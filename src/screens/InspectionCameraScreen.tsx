@@ -81,7 +81,7 @@ const InspectionCameraScreen = ({ route, navigation }: any) => {
 
             console.log("Photo captured to temporary path:", photo.path);
 
-            // Save the photo to Firebase
+            // Save the photo to Supabase
             // On Android, the path usually needs a 'file://' prefix for fetch()
             const photoUri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
             console.log("Attempting upload for URI:", photoUri);

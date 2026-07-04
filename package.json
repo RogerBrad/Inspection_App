@@ -16,7 +16,7 @@
     "@react-native-ml-kit/text-recognition": "^2.0.0",
     "@react-navigation/native": "7.1.28",
     "@react-navigation/stack": "7.6.16",
-    "firebase": "^12.8.0",
+    "@supabase/supabase-js": "^2.110.0",
     "react": "18.2.0",
     "react-native": "0.74.0",
     "react-native-gesture-handler": "2.16.2",

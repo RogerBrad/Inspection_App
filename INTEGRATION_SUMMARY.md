@@ -5,14 +5,14 @@ Successfully integrated the React Native inspection app with the SRAM dashboard'
 
 ## Changes Made
 
-### 1. Firebase Configuration (`firebaseConfig.ts`)
-- **Added**: Realtime Database support alongside existing Firestore
-- **Export**: `realtimeDb` for accessing rental agreements
+### 1. Supabase Configuration
+- **Added**: Supabase support for inspection history and rental agreement workflow
+- **Backend**: `rental_agreements` table stores agreement data and workflow state
 
 - **PDF417 Bypass**: Scans of driver's licenses (PDF417 format) now skip database validation and proceed directly to the inspection details screen.
 - **Improved Logic**: Removed technician ID requirement (any technician can scan any allocated inspection)
 - **Odometer Validation**: Added requirement for odometer reading on vehicle inspections
-- **Bug Fix**: Eliminated Firestore "undefined" error when saving non-vehicle inspections
+- **Bug Fix**: Eliminated undefined error when saving non-vehicle inspections
 - **Bug Fix**: Sanitized photo upload paths to handle special characters (slashes) in item names like "Dents/Scratches"
 - **New Feature**: Added orange Debug button and screen for easy diagnosis of database sync issues
 
@@ -27,7 +27,7 @@ Successfully integrated the React Native inspection app with the SRAM dashboard'
 - **`updateInspectionResult(agreementId, passed, notes, items)`**
   - Updates inspection workflow status to "Passed" or "Failed"
   - Saves inspection results and completion timestamp
-  - Updates Realtime Database for dashboard sync
+  - Updates backend database for dashboard sync
 
 ### 3. Scanner Screen (`ScannerScreen.tsx`)
 **Enhanced barcode scanning with validation:**
@@ -44,8 +44,8 @@ Successfully integrated the React Native inspection app with the SRAM dashboard'
 **Enhanced inspection completion:**
 - Receives agreement data from Scanner
 - Calculates overall pass/fail based on inspection items
-- Saves inspection to Firestore (history)
-- Updates rental agreement workflow in Realtime Database
+- Saves inspection to Supabase (history)
+- Updates rental agreement workflow in the backend database
 - Shows detailed confirmation alert with:
   - Pass/Fail status
   - Item counts
@@ -83,9 +83,9 @@ Successfully integrated the React Native inspection app with the SRAM dashboard'
 - **Future**: Will be replaced with actual authenticated user ID
 
 ### Database Structure
-The app now reads/writes to:
-- **Firestore**: `Inspections` collection (inspection history)
-- **Realtime Database**: `rentalAgreements/{id}/inspectionWorkflow` (workflow status)
+The app now reads/writes to backend tables and workflow records, such as:
+- **Inspections**: inspection history
+- **rentalAgreements/{id}/inspectionWorkflow**: workflow status
 
 ## Testing Checklist
 
@@ -96,7 +96,7 @@ The app now reads/writes to:
 - [ ] Complete inspection with all pass
 - [ ] Complete inspection with some failures
 - [ ] Verify dashboard updates correctly
-- [ ] Verify inspection history saves to Firestore
+- [ ] Verify inspection history saves to Supabase
 
 ## Next Steps
 

@@ -320,7 +320,7 @@ const DetailsScreen = ({ route, navigation }: any) => {
                 inspectionRecord.odometer = odometer;
             }
 
-            // Save to Firestore (inspection history)
+            // Save to Supabase (inspection history)
             await inspectionService.saveInspection(inspectionRecord);
 
             // Update Rental Agreement Workflow (if agreement exists)

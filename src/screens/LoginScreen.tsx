@@ -14,9 +14,7 @@ import {
     Dimensions
 } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { auth, realtimeDb } from '../services/firebaseConfig';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
+import { supabase } from '../services/supabaseClient';
 import { offlineStorage } from '../services/offlineStorage';
 import { rentalAgreementService } from '../services/rentalAgreementService';
 
@@ -49,22 +47,31 @@ const LoginScreen = ({ navigation }: any) => {
 
         console.log('Attempting login for:', cleanEmail);
         try {
-            // 1. Firebase Auth Sign In
-            const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-            const user = userCredential.user;
+            // 1. Supabase Auth Sign In
+            const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+                email: cleanEmail,
+                password: cleanPassword
+            });
 
-            console.log('Auth success, UID:', user.uid);
+            if (authError) throw authError;
 
-            // 2. Fetch User Profile from RTDB to get the technician info
-            const userRef = ref(realtimeDb, `User/${user.uid}`);
-            const snapshot = await get(userRef);
+            const user = authData.user;
+            if (!user) throw new Error('No user data returned from authentication.');
 
-            if (snapshot.exists()) {
-                const userData = snapshot.val();
-                console.log('User profile found (UID match):', userData.firstName, userData.surname);
+            console.log('Auth success, UID:', user.id);
+
+            // 2. Fetch User Profile from user_profiles table to get the technician info
+            const { data: profileData, error: profileError } = await supabase
+                .from('user_profiles')
+                .select('*')
+                .eq('id', user.id)
+                .single();
+
+            if (profileData && !profileError) {
+                console.log('User profile found (UID match):', profileData.first_name, profileData.surname);
 
                 // 3. Save to local storage for persistent session
-                await offlineStorage.setUserId(user.uid);
+                await offlineStorage.setUserId(user.id);
                 await offlineStorage.setUserEmail(user.email || '');
 
                 // 4. Trigger immediate sync of allocated inspections
@@ -75,30 +82,27 @@ const LoginScreen = ({ navigation }: any) => {
                     console.error('Initial sync failed:', syncError);
                 }
             } else {
-                console.log('No profile at /User/[UID], trying search by Email...');
+                console.log('No profile at user_profiles table with id, trying search by Email...');
                 
-                // Fallback: Search all users for a matching email address
-                const usersRef = ref(realtimeDb, 'User');
-                const allUsersSnapshot = await get(usersRef);
-                
+                // Fallback: Search user_profiles for a matching email address
+                const { data: emailProfiles, error: emailErr } = await supabase
+                    .from('user_profiles')
+                    .select('*')
+                    .eq('email', user.email || cleanEmail);
+
                 let foundByEmail = false;
-                if (allUsersSnapshot.exists()) {
-                    const allUsers = allUsersSnapshot.val();
-                    for (const uid in allUsers) {
-                        if (allUsers[uid].email?.toLowerCase() === user.email?.toLowerCase()) {
-                            console.log('User profile found (Email match):', allUsers[uid].firstName);
-                            await offlineStorage.setUserId(uid);
-                            await offlineStorage.setUserEmail(allUsers[uid].email);
-                            foundByEmail = true;
-                            break;
-                        }
-                    }
+                if (emailProfiles && emailProfiles.length > 0 && !emailErr) {
+                    const firstProfile = emailProfiles[0];
+                    console.log('User profile found (Email match):', firstProfile.first_name);
+                    await offlineStorage.setUserId(firstProfile.id);
+                    await offlineStorage.setUserEmail(firstProfile.email);
+                    foundByEmail = true;
                 }
 
                 if (!foundByEmail) {
-                    console.warn('Auth user exists but no profile found in /User node (neither UID nor Email)');
+                    console.warn('Auth user exists but no profile found in user_profiles (neither UID nor Email)');
                     // Even if profile missing, we can use the Auth UID as a placeholder
-                    await offlineStorage.setUserId(user.uid);
+                    await offlineStorage.setUserId(user.id);
                     await offlineStorage.setUserEmail(user.email || '');
                 }
 
@@ -112,20 +116,16 @@ const LoginScreen = ({ navigation }: any) => {
                 }
             }
         } catch (error: any) {
-            console.error('Login error code:', error.code);
             console.error('Login error message:', error.message);
 
-            let message = 'An error occurred during login.';
-            if (error.code === 'auth/user-not-found') message = 'No user found with this email.';
-            if (error.code === 'auth/wrong-password') message = 'Incorrect password.';
-            if (error.code === 'auth/invalid-email') message = 'Invalid email address.';
-            if (error.code === 'auth/invalid-credential') message = 'Invalid email or password.';
-            if (error.code === 'auth/too-many-requests') message = 'Too many failed attempts. Please try again later.';
-            if (error.code === 'auth/network-request-failed') message = 'Network request failed. Please check your internet connection and try again.';
+            let message = error.message || 'An error occurred during login.';
+            if (message.includes('Invalid login credentials')) {
+                message = 'Invalid email or password.';
+            }
 
             Alert.alert(
                 'Login Failed', 
-                `${message}\n\nTechnical Error: ${error.code}`,
+                `${message}`,
                 [{ text: "OK" }]
             );
         } finally {
@@ -143,8 +143,8 @@ const LoginScreen = ({ navigation }: any) => {
                     <View style={styles.logoCircle}>
                         <Text style={styles.logoEmoji}>📦</Text>
                     </View>
-                    <Text style={styles.appTitle}>CReAMer v26-NET-FIX</Text>
-                    <Text style={styles.appSubtitle}>Inspection Management System</Text>
+                <Text style={styles.appTitle}>CreamIER</Text>
+                <Text style={styles.appSubtitle}>Inspection Enables Reliability</Text>
                 </View>
 
                 <View style={styles.formContainer}>
@@ -204,7 +204,7 @@ const LoginScreen = ({ navigation }: any) => {
                 </View>
 
                 <View style={styles.footer}>
-                    <Text style={styles.versionText}>v26-STABLE | Network Guard Enabled</Text>
+                    <Text style={styles.versionText}>v27 | Network Guard Enabled</Text>
                 </View>
             </ScrollView>
         </KeyboardAvoidingView>

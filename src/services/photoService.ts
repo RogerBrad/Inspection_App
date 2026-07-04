@@ -1,17 +1,4 @@
-import { db, storage } from './firebaseConfig';
-import {
-    collection,
-    addDoc,
-    setDoc,
-    doc,
-    query,
-    where,
-    orderBy,
-    getDocs,
-    serverTimestamp,
-    Timestamp
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { supabase } from './supabaseClient';
 
 export interface VehiclePhoto {
     id?: string;
@@ -19,19 +6,17 @@ export interface VehiclePhoto {
     registrationNumber: string;
     photoUrl: string;
     angle: string;
-    timestamp: Timestamp;
+    timestamp: any;
     metadata?: any;
 }
 
-const COLLECTION_NAME = 'VehiclePhotos';
+const COLLECTION_NAME = 'vehicle_photos';
 
 export const photoService = {
     /**
-     * Uploads a photo to Firebase Storage and saves the record to Firestore
+     * Uploads a photo to Supabase Storage and saves the record to database
      */
     async saveVehiclePhoto(uri: string, vehicleData: any, angle: string, category: string = 'vehicles') {
-        let photoUrl = ''; // Hoisted for access in fallback
-
         try {
             // Helper for timeouts
             const withTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
@@ -63,31 +48,36 @@ export const photoService = {
             const assetId = (vehicleData.vin || 'unknown').replace(/[\s\/\#\?\[\]]/g, '_');
             const rootFolder = category === 'refrigeration' ? 'refrigeration' : 'vehicles';
             const filename = `${rootFolder}/${assetId}/${timestamp}_${angle}.jpg`;
-            const storageRef = ref(storage, filename);
 
             console.log("Starting upload to path:", filename);
 
             // 2. Upload to Storage with Timeout (60 seconds)
-            const uploadTask = uploadBytes(storageRef, blob);
-            const uploadResult = await withTimeout(uploadTask, 60000, "Timeout uploading to Firebase Storage");
+            const uploadTask = supabase.storage
+                .from('vehicle-photos')
+                .upload(filename, blob, {
+                    contentType: 'image/jpeg',
+                    upsert: true
+                });
 
-            console.log("Upload successful:", uploadResult.metadata.fullPath);
+            const uploadResult = await withTimeout(uploadTask, 60000, "Timeout uploading to Supabase Storage");
+            if (uploadResult.error) throw uploadResult.error;
+
+            console.log("Upload successful:", uploadResult.data.path);
 
             console.log("Getting download URL...");
-            photoUrl = await withTimeout(
-                getDownloadURL(storageRef),
-                15000,
-                "Timeout getting download URL"
-            );
+            const { data: publicUrlData } = supabase.storage
+                .from('vehicle-photos')
+                .getPublicUrl(filename);
+            const photoUrl = publicUrlData.publicUrl;
             console.log("Got download URL:", photoUrl);
 
-            // 3. Save reference to Firestore
+            // 3. Save reference to database
             const photoRecord = {
                 vin: vehicleData.vin || 'N/A',
-                registrationNumber: vehicleData.registrationNumber || '',
-                photoUrl,
+                registration_number: vehicleData.registrationNumber || '',
+                photo_url: photoUrl,
                 angle,
-                timestamp: serverTimestamp(),
+                timestamp: new Date().toISOString(),
                 metadata: {
                     make: vehicleData.make || '',
                     series: vehicleData.series || '',
@@ -95,82 +85,26 @@ export const photoService = {
                 }
             };
 
-            // Create a unique ID manually and sanitize it to avoid path segment issues (slashes)
-            const unsafeDocId = `${vehicleData.vin || 'temp'}_${timestamp}_${angle}`;
-            const customDocId = unsafeDocId.replace(/\//g, '_');
-            const docRef = doc(db, COLLECTION_NAME, customDocId);
+            const { data: insertData, error: insertErr } = await supabase
+                .from(COLLECTION_NAME)
+                .insert(photoRecord)
+                .select()
+                .single();
 
-            await withTimeout(
-                setDoc(docRef, photoRecord),
-                15000,
-                "Timeout saving to Firestore"
-            );
-            console.log("Saved to Firestore with ID:", customDocId);
+            if (insertErr) throw insertErr;
+            console.log("Saved to database with ID:", insertData.id);
 
-            return { id: customDocId, ...photoRecord };
+            return {
+                id: insertData.id,
+                vin: insertData.vin,
+                registrationNumber: insertData.registration_number,
+                photoUrl: insertData.photo_url,
+                angle: insertData.angle,
+                timestamp: insertData.timestamp,
+                metadata: insertData.metadata
+            };
         } catch (error: any) {
             console.error("SDK UPLOAD ERROR:", error);
-
-            // FALLBACK: If SDK connection fails (Timeout) AND we have a photoUrl, use REST API
-            if (error.message && error.message.includes("Timeout") && photoUrl) {
-                console.log("Attempting REST API Fallback...");
-                try {
-                    const projectId = "rogersdb-ef29e";
-                    const fallbackTimestamp = Date.now();
-                    const unsafeDocId = `${vehicleData.vin || 'temp'}_${fallbackTimestamp}_${angle}`;
-                    const customDocId = unsafeDocId.replace(/\//g, '_');
-                    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${COLLECTION_NAME}?documentId=${customDocId}`;
-
-                    const restBody = {
-                        fields: {
-                            vin: { stringValue: vehicleData.vin || 'N/A' },
-                            registrationNumber: { stringValue: vehicleData.registrationNumber || '' },
-                            photoUrl: { stringValue: photoUrl },
-                            angle: { stringValue: angle },
-                            // Use current time ISO string since serverTimestamp() is not available in REST JSON
-                            timestamp: { timestampValue: new Date().toISOString() },
-                            metadata: {
-                                mapValue: {
-                                    fields: {
-                                        make: { stringValue: vehicleData.make || '' },
-                                        series: { stringValue: vehicleData.series || '' },
-                                        originalTimestamp: { integerValue: String(fallbackTimestamp) }
-                                    }
-                                }
-                            }
-                        }
-                    };
-
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(restBody)
-                    });
-
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`REST Error: ${response.status} - ${errorText}`);
-                    }
-
-                    console.log("REST Fallback Successful!");
-                    return {
-                        id: customDocId,
-                        vin: vehicleData.vin || 'N/A',
-                        registrationNumber: vehicleData.registrationNumber || '',
-                        photoUrl,
-                        angle,
-                        timestamp: Timestamp.now(), // Approximate for local return
-                        metadata: restBody.fields.metadata.mapValue.fields
-                    };
-
-                } catch (restErr: any) {
-                    console.error("REST Fallback Failed:", restErr);
-                    // Throw the ORIGINAL error to the user if fallback also failed
-                    throw new Error(`Upload Failed (SDK & REST): ${error.message} \nREST: ${restErr.message}`);
-                }
-            }
             throw new Error(`Upload Failed: ${error.message}`);
         }
     },
@@ -180,23 +114,27 @@ export const photoService = {
      */
     async getPhotosByVehicle(vin: string): Promise<VehiclePhoto[]> {
         try {
-            const q = query(
-                collection(db, COLLECTION_NAME),
-                where('vin', '==', vin)
-            );
+            const { data, error } = await supabase
+                .from(COLLECTION_NAME)
+                .select('*')
+                .eq('vin', vin);
 
-            const querySnapshot = await getDocs(q);
-            const photos = querySnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            } as VehiclePhoto));
+            if (error) throw error;
 
-            // Sort client-side to avoid needing a composite index in Firestore
+            const photos = (data || []).map(row => ({
+                id: row.id,
+                vin: row.vin,
+                registrationNumber: row.registration_number,
+                photoUrl: row.photo_url,
+                angle: row.angle,
+                timestamp: row.timestamp,
+                metadata: row.metadata
+            }));
+
+            // Sort client-side
             return photos.sort((a, b) => {
                 const getTime = (ts: any) => {
                     if (!ts) return 0;
-                    if (ts.toMillis) return ts.toMillis();
-                    if (ts.seconds) return ts.seconds * 1000;
                     return new Date(ts).getTime();
                 };
                 return getTime(b.timestamp) - getTime(a.timestamp);
@@ -212,32 +150,27 @@ export const photoService = {
      */
     async getLatestPhotoByAngle(vin: string, angle: string): Promise<VehiclePhoto | null> {
         try {
-            const q = query(
-                collection(db, COLLECTION_NAME),
-                where('vin', '==', vin),
-                where('angle', '==', angle)
-            );
+            const { data, error } = await supabase
+                .from(COLLECTION_NAME)
+                .select('*')
+                .eq('vin', vin)
+                .eq('angle', angle)
+                .order('timestamp', { ascending: false })
+                .limit(1);
 
-            const querySnapshot = await getDocs(q);
-            if (querySnapshot.empty) return null;
+            if (error) throw error;
+            if (!data || data.length === 0) return null;
 
-            const photos = querySnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            } as VehiclePhoto));
-
-            // Sort client-side
-            photos.sort((a, b) => {
-                const getTime = (ts: any) => {
-                    if (!ts) return 0;
-                    if (ts.toMillis) return ts.toMillis();
-                    if (ts.seconds) return ts.seconds * 1000;
-                    return new Date(ts).getTime();
-                };
-                return getTime(b.timestamp) - getTime(a.timestamp);
-            });
-
-            return photos[0];
+            const row = data[0];
+            return {
+                id: row.id,
+                vin: row.vin,
+                registrationNumber: row.registration_number,
+                photoUrl: row.photo_url,
+                angle: row.angle,
+                timestamp: row.timestamp,
+                metadata: row.metadata
+            };
         } catch (error) {
             console.error("Error fetching latest photo:", error);
             throw error;

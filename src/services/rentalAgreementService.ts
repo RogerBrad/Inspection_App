@@ -1,5 +1,4 @@
-import { realtimeDb } from './firebaseConfig';
-import { ref, get, update, query, orderByChild, equalTo } from 'firebase/database';
+import { supabase } from './supabaseClient';
 import { offlineStorage } from './offlineStorage';
 import NetInfo from "@react-native-community/netinfo";
 
@@ -72,44 +71,30 @@ export const rentalAgreementService = {
             // Clean the scanned value to remove symbology identifiers
             const cleanedId = cleanBarcodeValue(scannedId);
 
-            const agreementsRef = ref(realtimeDb, 'rentalAgreements');
-            const snapshot = await get(agreementsRef);
-
-            if (!snapshot.exists()) {
-                return { valid: false, error: 'No rental agreements found in database' };
-            }
-
-            const data = snapshot.val();
-
             // Search for agreement by ID or by VIN/Serial Number
-            let foundAgreement: RentalAgreement | null = null;
-            let agreementId: string | null = null;
+            const { data: raData, error: raError } = await supabase
+                .from('rental_agreements')
+                .select('id, status, agreement_data')
+                .or(`id.eq.${cleanedId},agreement_data->assetDetails->>vin.eq.${cleanedId},agreement_data->assetDetails->>serialNumber.eq.${cleanedId}`);
 
-            // First, try direct ID match
-            if (data[cleanedId]) {
-                foundAgreement = { ...data[cleanedId], id: cleanedId };
-                agreementId = cleanedId;
-            } else {
-                // Search by VIN or Serial Number
-                for (const [id, val] of Object.entries(data)) {
-                    const agreement = val as any;
-                    const vin = agreement.assetDetails?.vin;
-                    const serial = agreement.assetDetails?.serialNumber;
-
-                    if (vin === cleanedId || serial === cleanedId) {
-                        foundAgreement = { ...agreement, id };
-                        agreementId = id;
-                        break;
-                    }
-                }
+            if (raError) {
+                return { valid: false, error: `Database error: ${raError.message}` };
             }
 
-            if (!foundAgreement) {
+            if (!raData || raData.length === 0) {
                 return {
                     valid: false,
                     error: `No rental agreement found for serial number: ${cleanedId}`
                 };
             }
+
+            const row = raData[0];
+            const agreementData = row.agreement_data || {};
+            const foundAgreement: RentalAgreement = {
+                ...agreementData,
+                id: row.id,
+                status: row.status
+            };
 
             // Check if inspection workflow exists and is allocated
             const workflow = foundAgreement.inspectionWorkflow;
@@ -165,18 +150,36 @@ export const rentalAgreementService = {
             }
 
             // Online Mode
-            const updates: any = {};
-            const workflowPath = `rentalAgreements/${agreementId}/inspectionWorkflow`;
+            // First fetch existing agreement_data
+            const { data: raRow, error: fetchErr } = await supabase
+                .from('rental_agreements')
+                .select('agreement_data')
+                .eq('id', agreementId)
+                .single();
 
-            updates[`${workflowPath}/status`] = passed ? 'Passed' : 'Failed';
-            updates[`${workflowPath}/completedAt`] = Date.now();
-            updates[`${workflowPath}/inspectionResults`] = {
-                passed,
-                notes,
-                items: inspectionItems
+            if (fetchErr) throw fetchErr;
+
+            const agreementData = raRow?.agreement_data || {};
+            const updatedData = {
+                ...agreementData,
+                inspectionWorkflow: {
+                    ...(agreementData.inspectionWorkflow || {}),
+                    status: passed ? 'Passed' : 'Failed',
+                    completedAt: Date.now(),
+                    inspectionResults: {
+                        passed,
+                        notes,
+                        items: inspectionItems
+                    }
+                }
             };
 
-            await update(ref(realtimeDb), updates);
+            const { error: updateErr } = await supabase
+                .from('rental_agreements')
+                .update({ agreement_data: updatedData })
+                .eq('id', agreementId);
+
+            if (updateErr) throw updateErr;
 
             return { success: true };
         } catch (error) {
@@ -189,7 +192,7 @@ export const rentalAgreementService = {
     },
 
     /**
-     * Download all ALLOCATED inspections from Firebase and store locally
+     * Download all ALLOCATED inspections from Supabase and store locally
      */
     async syncDownAllocatedInspections(userEmail: string): Promise<{ success: boolean; count: number; totalInDb: number }> {
         try {
@@ -199,33 +202,34 @@ export const rentalAgreementService = {
                 return { success: false, count: 0, totalInDb: 0 };
             }
 
-            const agreementsRef = ref(realtimeDb, 'rentalAgreements');
-            const snapshot = await get(agreementsRef);
-
-            if (!snapshot.exists()) {
-                await offlineStorage.saveAgreements([]);
+            const searchEmail = (userEmail || "").toLowerCase().trim();
+            if (searchEmail === "") {
                 return { success: true, count: 0, totalInDb: 0 };
             }
 
-            const data = snapshot.val();
-            const allItems = Object.entries(data);
-            const totalInDb = allItems.length;
+            // We select agreements that have inspectionWorkflow.status as 'Allocated'
+            const { data, error } = await supabase
+                .from('rental_agreements')
+                .select('id, status, agreement_data')
+                .eq('agreement_data->inspectionWorkflow->>status', 'Allocated');
+
+            if (error) throw error;
+
+            const totalInDb = data?.length || 0;
             const allocatedAgreements: RentalAgreement[] = [];
 
-            allItems.forEach(([key, value]: [string, any]) => {
-                const workflow = value.inspectionWorkflow;
-                if (!workflow) return;
-
-                const status = (workflow.status || "").toLowerCase();
+            (data || []).forEach((row: any) => {
+                const agreementData = row.agreement_data || {};
+                const workflow = agreementData.inspectionWorkflow || {};
                 const techEmail = (workflow.technicianEmail || "").toLowerCase().trim();
                 const techId = (workflow.technicianId || "").toLowerCase().trim();
-                const searchEmail = (userEmail || "").toLowerCase().trim();
 
-                // Match if status is 'allocated' AND email matches EITHER field (robustness)
-                if (status === 'allocated' && (techEmail === searchEmail || techId === searchEmail) && searchEmail !== "") {
+                // Match technician email or ID
+                if (techEmail === searchEmail || techId === searchEmail) {
                     allocatedAgreements.push({
-                        ...value,
-                        id: key
+                        ...agreementData,
+                        id: row.id,
+                        status: row.status
                     });
                 }
             });
@@ -240,7 +244,7 @@ export const rentalAgreementService = {
     },
 
     /**
-     * Upload locally completed inspections to Firebase
+     * Upload locally completed inspections to Supabase
      */
     async syncUpCompletedInspections(): Promise<{ success: boolean; count: number; errors: any[] }> {
         try {

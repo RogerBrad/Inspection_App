@@ -1,16 +1,4 @@
-import { db } from './firebaseConfig';
-import {
-    collection,
-    query,
-    where,
-    getDocs,
-    doc,
-    getDoc,
-    setDoc,
-    addDoc,
-    orderBy,
-    Timestamp
-} from 'firebase/firestore';
+import { supabase } from './supabaseClient';
 
 export interface InspectionType {
     id: string;
@@ -51,8 +39,8 @@ export interface InspectionRecord {
     };
 }
 
-const CONFIG_COLLECTION = 'InspectionConfigs';
-const INSPECTIONS_COLLECTION = 'Inspections';
+const CONFIG_COLLECTION = 'inspection_configs';
+const INSPECTIONS_COLLECTION = 'inspections';
 
 export const inspectionService = {
     /**
@@ -60,15 +48,20 @@ export const inspectionService = {
      */
     async getConfigByCategory(category: string): Promise<InspectionConfig | null> {
         try {
-            const q = query(
-                collection(db, CONFIG_COLLECTION),
-                where('category', '==', category)
-            );
-            const snapshot = await getDocs(q);
+            const { data, error } = await supabase
+                .from(CONFIG_COLLECTION)
+                .select('*')
+                .eq('category', category);
 
-            if (snapshot.empty) return null;
+            if (error) throw error;
+            if (!data || data.length === 0) return null;
 
-            return snapshot.docs[0].data() as InspectionConfig;
+            const row = data[0];
+            return {
+                category: row.category,
+                inspectionTypes: row.inspection_types,
+                areas: row.areas
+            } as InspectionConfig;
         } catch (error) {
             console.error("Error fetching inspection config:", error);
             throw error;
@@ -76,8 +69,7 @@ export const inspectionService = {
     },
 
     /**
-     * Seeds initial data into Firestore to get the system started
-     * Call this once during setup or via a hidden admin menu
+     * Seeds initial data into database to get the system started
      */
     async seedInitialConfigs() {
         const configs: InspectionConfig[] = [
@@ -129,9 +121,19 @@ export const inspectionService = {
         ];
 
         for (const config of configs) {
-            const docId = config.category;
-            await setDoc(doc(db, CONFIG_COLLECTION, docId), config);
-            console.log(`Seeded config for: ${docId}`);
+            const { error } = await supabase
+                .from(CONFIG_COLLECTION)
+                .upsert({
+                    id: config.category,
+                    category: config.category,
+                    inspection_types: config.inspectionTypes,
+                    areas: config.areas
+                });
+            if (error) {
+                console.error(`Error seeding config for: ${config.category}`, error);
+            } else {
+                console.log(`Seeded config for: ${config.category}`);
+            }
         }
     },
 
@@ -173,16 +175,28 @@ export const inspectionService = {
     },
 
     /**
-     * Saves a completed inspection to Firestore
+     * Saves a completed inspection to Supabase
      */
     async saveInspection(record: Omit<InspectionRecord, 'timestamp'>) {
         try {
             const data = {
-                ...record,
-                timestamp: Timestamp.now()
+                asset_id: record.assetId,
+                asset_category: record.assetCategory,
+                inspection_type_id: record.inspectionTypeId,
+                inspection_type_label: record.inspectionTypeLabel,
+                results: record.results,
+                odometer: record.odometer || null,
+                summary: record.summary,
+                timestamp: new Date().toISOString()
             };
-            const docRef = await addDoc(collection(db, INSPECTIONS_COLLECTION), data);
-            return docRef.id;
+            const { data: insertData, error } = await supabase
+                .from(INSPECTIONS_COLLECTION)
+                .insert(data)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return insertData.id;
         } catch (error) {
             console.error("Error saving inspection:", error);
             throw error;
@@ -194,29 +208,27 @@ export const inspectionService = {
      */
     async getInspectionsByAsset(assetId: string): Promise<InspectionRecord[]> {
         try {
-            // Simplified query to avoid the need for composite indexes (which often cause silent failures)
-            const q = query(
-                collection(db, INSPECTIONS_COLLECTION),
-                where('assetId', '==', assetId)
-            );
-            const snapshot = await getDocs(q);
+            const { data, error } = await supabase
+                .from(INSPECTIONS_COLLECTION)
+                .select('*')
+                .eq('asset_id', assetId);
 
-            // Map the data
-            const records = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
+            if (error) throw error;
+
+            const records = (data || []).map(row => ({
+                id: row.id,
+                assetId: row.asset_id,
+                assetCategory: row.asset_category,
+                inspectionTypeId: row.inspection_type_id,
+                inspectionTypeLabel: row.inspection_type_label,
+                timestamp: row.timestamp,
+                results: row.results,
+                odometer: row.odometer,
+                summary: row.summary
             })) as InspectionRecord[];
 
             // Sort client-side by timestamp descending
-            return records.sort((a, b) => {
-                const getMillis = (ts: any) => {
-                    if (!ts) return 0;
-                    if (ts.toMillis) return ts.toMillis();
-                    if (ts.seconds) return ts.seconds * 1000;
-                    return new Date(ts).getTime();
-                };
-                return getMillis(b.timestamp) - getMillis(a.timestamp);
-            });
+            return records.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         } catch (error) {
             console.error("Error fetching history:", error);
             throw error;

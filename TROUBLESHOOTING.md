@@ -87,7 +87,7 @@ No rental agreement found for ID: 123456789 (original: ]IC1123456789)
 **Symptom:** Error says "No rental agreement found for ID: XXXXX"
 
 **Check:**
-- Does a rental agreement with this serial number exist in Firebase Realtime Database?
+- Does a rental agreement with this serial number exist in the backend database?
 - Path: `rentalAgreements/{agreementId}/assetDetails/serialNumber`
 
 **Solution:**
@@ -126,7 +126,7 @@ No rental agreement found for ID: 123456789 (original: ]IC1123456789)
 - Re-allocate the inspection to the user with ID `USER_001`
 
 **Solution Option 2 - Match the technician ID in database:**
-- Find the user in Firebase that should match
+- Find the user in the backend that should match
 - Update `inspectionWorkflow.technicianId` to match that user's actual ID
 
 ---
@@ -146,9 +146,9 @@ No rental agreement found for ID: 123456789 (original: ]IC1123456789)
 
 ## Testing with a Sample Rental Agreement
 
-### Step 1: Create Test Data in Firebase
+### Step 1: Create Test Data in the backend database
 
-Add this to `rentalAgreements` in Firebase Realtime Database:
+Add this to `rentalAgreements` in the backend database:
 
 ```json
 {
@@ -195,7 +195,7 @@ Add this to `rentalAgreements` in Firebase Realtime Database:
 Run through these checks:
 
 - [ ] Barcode value shows in error message (new feature)
-- [ ] Check Firebase for matching `serialNumber` or `vin`
+- [ ] Check the backend database for matching `serialNumber` or `vin`
 - [ ] Verify `inspectionWorkflow` exists on that agreement
 - [ ] Confirm `technicianId` is `USER_001`
 - [ ] Confirm `status` is `"Allocated"`
@@ -235,10 +235,10 @@ Validation result: {
 1. Install the new DEBUG APK: `Inspection-App-DEBUG-2026-02-05-*.apk`
 2. Scan a barcode and note the exact error message (including the scanned value)
 3. Use ADB logcat to view detailed logs
-4. Check Firebase database to verify the data exists and matches
+4. Check the backend database to verify the data exists and matches
 5. Report back with:
    - The scanned barcode value shown in error
    - The exact error message
-   - Whether the serial number exists in Firebase
+   - Whether the serial number exists in the backend database
 
 This will help us pinpoint exactly where the validation is failing!

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert } from 'react-native';
-import { getDatabase, ref, get } from 'firebase/database';
+import { supabase } from '../services/supabaseClient';
 import { offlineStorage } from '../services/offlineStorage';
 
 const DebugScreen = () => {
@@ -27,38 +27,40 @@ const DebugScreen = () => {
     async function fetchDebugData() {
         setLoading(true);
         try {
-            const db = getDatabase();
+            // Fetch allocated inspections from Supabase
+            const { data: raData, error: raError } = await supabase
+                .from('rental_agreements')
+                .select('id, agreement_data')
+                .eq('agreement_data->inspectionWorkflow->>status', 'Allocated');
 
-            // Fetch rental agreements with allocated inspections
-            const raSnapshot = await get(ref(db, 'rentalAgreements'));
-            if (raSnapshot.exists()) {
-                const data = raSnapshot.val();
-                const allocated = Object.entries(data)
-                    .filter(([_, val]: [string, any]) =>
-                        val.inspectionWorkflow?.status === 'Allocated'
-                    )
-                    .map(([id, val]: [string, any]) => ({
-                        id,
-                        assetName: val.assetDetails?.assetName,
-                        serialNumber: val.assetDetails?.serialNumber,
-                        vin: val.assetDetails?.vin,
-                        technicianId: val.inspectionWorkflow?.technicianId,
-                        technicianName: val.inspectionWorkflow?.technicianName,
-                    }));
-                setAllocatedInspections(allocated);
-            }
+            if (raError) throw raError;
 
-            // Fetch users
-            const userSnapshot = await get(ref(db, 'User'));
-            if (userSnapshot.exists()) {
-                const userData = userSnapshot.val();
-                const userList = Object.entries(userData).map(([uid, val]: [string, any]) => ({
-                    uid,
-                    name: `${val.firstName || ''} ${val.surname || ''}`.trim(),
-                    email: val.email,
-                }));
-                setUsers(userList);
-            }
+            const allocated = (raData || []).map((row: any) => {
+                const d = row.agreement_data || {};
+                return {
+                    id: row.id,
+                    assetName: d.assetDetails?.assetName,
+                    serialNumber: d.assetDetails?.serialNumber,
+                    vin: d.assetDetails?.vin,
+                    technicianId: d.inspectionWorkflow?.technicianId,
+                    technicianName: d.inspectionWorkflow?.technicianName,
+                };
+            });
+            setAllocatedInspections(allocated);
+
+            // Fetch users from user_profiles
+            const { data: profileData, error: profileError } = await supabase
+                .from('user_profiles')
+                .select('id, first_name, surname, email');
+
+            if (profileError) throw profileError;
+
+            const userList = (profileData || []).map((u: any) => ({
+                uid: u.id,
+                name: `${u.first_name || ''} ${u.surname || ''}`.trim(),
+                email: u.email,
+            }));
+            setUsers(userList);
         } catch (error) {
             console.error('Debug fetch error:', error);
             Alert.alert('Error', 'Failed to fetch debug data');
