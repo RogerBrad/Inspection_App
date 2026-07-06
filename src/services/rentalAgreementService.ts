@@ -203,7 +203,14 @@ export const rentalAgreementService = {
             }
 
             const searchEmail = (userEmail || "").toLowerCase().trim();
-            if (searchEmail === "") {
+            let searchId = "";
+            try {
+                searchId = (await offlineStorage.getUserId() || "").toLowerCase().trim();
+            } catch (e) {
+                console.warn('Failed to retrieve userId from storage:', e);
+            }
+
+            if (searchEmail === "" && searchId === "") {
                 return { success: true, count: 0, totalInDb: 0 };
             }
 
@@ -224,8 +231,11 @@ export const rentalAgreementService = {
                 const techEmail = (workflow.technicianEmail || "").toLowerCase().trim();
                 const techId = (workflow.technicianId || "").toLowerCase().trim();
 
-                // Match technician email or ID
-                if (techEmail === searchEmail || techId === searchEmail) {
+                // Match technician email or ID (or user ID)
+                const matchesEmail = searchEmail !== "" && (techEmail === searchEmail || techId === searchEmail);
+                const matchesId = searchId !== "" && techId === searchId;
+
+                if (matchesEmail || matchesId) {
                     allocatedAgreements.push({
                         ...agreementData,
                         id: row.id,

@@ -150,7 +150,7 @@ const LoginScreen = ({ navigation }: any) => {
                 <View style={styles.formContainer}>
                     <View style={styles.card}>
                         <Text style={styles.loginHeader}>Welcome Back</Text>
-                        <Text style={styles.loginSubheader}>Signin to continue</Text>
+                        <Text style={styles.loginSubheader}>Sign in to continue</Text>
 
                         <View style={styles.inputContainer}>
                             <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
@@ -204,7 +204,7 @@ const LoginScreen = ({ navigation }: any) => {
                 </View>
 
                 <View style={styles.footer}>
-                    <Text style={styles.versionText}>v27 | Network Guard Enabled</Text>
+                    <Text style={styles.versionText}>v1.2.5 (v27) | Network Guard Enabled</Text>
                 </View>
             </ScrollView>
         </KeyboardAvoidingView>

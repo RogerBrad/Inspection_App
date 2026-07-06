@@ -7,7 +7,8 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.user_profiles (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
-    full_name TEXT,
+    first_name TEXT,
+    surname TEXT,
     role TEXT DEFAULT 'technician',
     phone TEXT,
     metadata JSONB DEFAULT '{}'::jsonb,
@@ -60,6 +61,68 @@ CREATE TABLE IF NOT EXISTS public.inspections (
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Ensure user_profiles has the expected columns if the table already existed
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS surname TEXT;
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'technician';
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL;
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL;
+
+-- Make sure email has a unique constraint if we just added it
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'user_profiles_email_key'
+    ) THEN
+        ALTER TABLE public.user_profiles ADD CONSTRAINT user_profiles_email_key UNIQUE (email);
+    END IF;
+END $$;
+
+-- Drop NOT NULL constraint on company_id if it exists to allow seed inserts
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'user_profiles' 
+          AND column_name = 'company_id'
+    ) THEN
+        ALTER TABLE public.user_profiles ALTER COLUMN company_id DROP NOT NULL;
+    END IF;
+END $$;
+
+-- Drop NOT NULL constraint on company_id in rental_agreements if it exists to allow seed inserts
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'rental_agreements' 
+          AND column_name = 'company_id'
+    ) THEN
+        ALTER TABLE public.rental_agreements ALTER COLUMN company_id DROP NOT NULL;
+    END IF;
+END $$;
+
+-- Drop NOT NULL constraint on lessee_customer_id in rental_agreements if it exists to allow seed inserts
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'rental_agreements' 
+          AND column_name = 'lessee_customer_id'
+    ) THEN
+        ALTER TABLE public.rental_agreements ALTER COLUMN lessee_customer_id DROP NOT NULL;
+    END IF;
+END $$;
+
 -- Helpful indexes
 CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON public.user_profiles (email);
 CREATE INDEX IF NOT EXISTS idx_rental_agreements_status ON public.rental_agreements (status);
@@ -74,6 +137,13 @@ ALTER TABLE public.rental_agreements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vehicle_photos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inspection_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inspections ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist to prevent errors on re-run
+DROP POLICY IF EXISTS user_profiles_policy ON public.user_profiles;
+DROP POLICY IF EXISTS rental_agreements_policy ON public.rental_agreements;
+DROP POLICY IF EXISTS vehicle_photos_policy ON public.vehicle_photos;
+DROP POLICY IF EXISTS inspection_configs_policy ON public.inspection_configs;
+DROP POLICY IF EXISTS inspections_policy ON public.inspections;
 
 CREATE POLICY user_profiles_policy ON public.user_profiles
     FOR ALL USING (true) WITH CHECK (true);
@@ -144,43 +214,5 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- Sample seed data for quick testing
-INSERT INTO public.user_profiles (id, email, full_name, role, phone, metadata)
-VALUES (
-    'demo-tech',
-    'tech@example.com',
-    'Demo Technician',
-    'technician',
-    '+1-555-0100',
-    '{"team":"field"}'::jsonb
-)
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO public.rental_agreements (id, status, agreement_data)
-VALUES (
-    'AGREEMENT-001',
-    'Active',
-    '{
-        "assetDetails": {
-            "assetName": "Ford Transit",
-            "vin": "1HGCM82633A004352",
-            "serialNumber": "SER-1001"
-        },
-        "assetCategory": "motor_vehicle",
-        "parties": {
-            "lesseeName": "Demo Lessee"
-        },
-        "endOfRental": {
-            "inspectionDate": "2026-07-10"
-        },
-        "inspectionWorkflow": {
-            "status": "Allocated",
-            "technicianId": "demo-tech",
-            "technicianName": "Demo Technician",
-            "technicianEmail": "tech@example.com",
-            "allocatedAt": 1751568000000,
-            "nextInspectionDate": "2026-07-10"
-        }
-    }'::jsonb
-)
-ON CONFLICT (id) DO NOTHING;
+-- Default configurations seeded above are complete.
+-- No sample testing records are seeded here to prevent foreign key and multi-tenant constraint violations.
