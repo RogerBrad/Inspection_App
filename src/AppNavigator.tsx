@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from './services/firebaseConfig';
+import { supabase } from './services/supabaseClient';
 import { offlineStorage } from './services/offlineStorage';
 
 import LoginScreen from './screens/LoginScreen';
@@ -34,8 +33,14 @@ const AppNavigator = () => {
             }
         }, 5000);
 
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            console.log('AppNavigator: Auth state changed. User:', user ? user.uid : 'null');
+        // Fires immediately with the persisted session (INITIAL_SESSION), then on every sign in / out
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            // Don't await Supabase calls inside this callback - defer the work instead
+            setTimeout(() => handleSession(session?.user ?? null), 0);
+        });
+
+        const handleSession = async (user: { id: string; email?: string } | null) => {
+            console.log('AppNavigator: Auth state changed. User:', user ? user.id : 'null');
             try {
                 if (user) {
                     // CRITICAL: Check local storage for the technician's profile
@@ -44,15 +49,15 @@ const AppNavigator = () => {
                     // If storage is empty, we check if this is a fresh login attempt 
                     // where user.email is present. We'll give it a moment or trust the auth state.
                     if (!userEmail && user.email) {
-                        console.log('AppNavigator: Storage empty but Firebase user has email. Initializing session...');
+                        console.log('AppNavigator: Storage empty but Supabase user has email. Initializing session...');
                         await offlineStorage.setUserEmail(user.email);
-                        await offlineStorage.setUserId(user.uid);
+                        await offlineStorage.setUserId(user.id);
                         userEmail = user.email;
                     }
 
                     if (!userEmail) {
                         console.warn('AppNavigator: User detected but no profile email available. Forcing Logout.');
-                        await signOut(auth);
+                        await supabase.auth.signOut({ scope: 'local' });
                         setIsLoggedIn(false);
                     } else {
                         console.log('AppNavigator: Valid technician session confirmed:', userEmail);
@@ -70,10 +75,10 @@ const AppNavigator = () => {
                 setLoading(false);
                 clearTimeout(timer);
             }
-        });
+        };
 
         return () => {
-            unsubscribe();
+            subscription.unsubscribe();
             clearTimeout(timer);
         };
     }, []);

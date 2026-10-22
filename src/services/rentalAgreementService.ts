@@ -1,5 +1,4 @@
-import { realtimeDb } from './firebaseConfig';
-import { ref, get, update, query, orderByChild, equalTo } from 'firebase/database';
+import { supabase } from './supabaseClient';
 import { offlineStorage } from './offlineStorage';
 import NetInfo from "@react-native-community/netinfo";
 
@@ -38,6 +37,28 @@ export interface InspectionWorkflow {
     supportLogId?: string;
 }
 
+const TABLE = 'rental_agreements';
+const COLUMNS = 'id, status, inspection_date, agreement_data';
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Flattens a rental_agreements row into the RentalAgreement shape used by the app.
+ * The agreement details (parties, assetDetails, inspectionWorkflow...) live in the
+ * agreement_data JSONB column, exactly as the SRAM web app stores them.
+ */
+function mapRow(row: any): RentalAgreement {
+    const agreementData = row.agreement_data || {};
+    return {
+        ...agreementData,
+        id: row.id,
+        status: row.status,
+        endOfRental: {
+            ...(agreementData.endOfRental || {}),
+            inspectionDate: row.inspection_date || agreementData.endOfRental?.inspectionDate,
+        },
+    };
+}
+
 /**
  * Cleans barcode value by removing symbology identifiers
  * Common prefixes: ]C1, ]E0, ]d2, ]IC1, etc.
@@ -49,7 +70,7 @@ function cleanBarcodeValue(rawValue: string): string {
     // Example: ]C1, ]E0, ]I, ]IC1
     let cleaned = rawValue.replace(/^\][A-Z0-9]{1,3}/, '').trim();
 
-    // 2. Secondary cleanup: if it still starts with a bracket or special char, 
+    // 2. Secondary cleanup: if it still starts with a bracket or special char,
     // remove everything until the first letter/number
     if (cleaned.startsWith(']') || !/^[A-Z0-9]/i.test(cleaned)) {
         cleaned = cleaned.replace(/^[^A-Z0-9]+/, '');
@@ -57,6 +78,27 @@ function cleanBarcodeValue(rawValue: string): string {
 
     console.log(`Barcode cleaning detail: Raw="${rawValue}" -> Cleaned="${cleaned}"`);
     return cleaned;
+}
+
+/**
+ * Finds a rental agreement by its ID, or by the serial number / VIN of its asset
+ */
+async function findAgreement(identifier: string): Promise<RentalAgreement | null> {
+    // 1. Direct ID match (IDs are UUIDs in Supabase)
+    if (UUID_REGEX.test(identifier)) {
+        const { data, error } = await supabase.from(TABLE).select(COLUMNS).eq('id', identifier).maybeSingle();
+        if (error) throw error;
+        if (data) return mapRow(data);
+    }
+
+    // 2. Serial number, then VIN
+    for (const path of ['agreement_data->assetDetails->>serialNumber', 'agreement_data->assetDetails->>vin']) {
+        const { data, error } = await supabase.from(TABLE).select(COLUMNS).eq(path, identifier).limit(1);
+        if (error) throw error;
+        if (data && data.length > 0) return mapRow(data[0]);
+    }
+
+    return null;
 }
 
 export const rentalAgreementService = {
@@ -72,37 +114,7 @@ export const rentalAgreementService = {
             // Clean the scanned value to remove symbology identifiers
             const cleanedId = cleanBarcodeValue(scannedId);
 
-            const agreementsRef = ref(realtimeDb, 'rentalAgreements');
-            const snapshot = await get(agreementsRef);
-
-            if (!snapshot.exists()) {
-                return { valid: false, error: 'No rental agreements found in database' };
-            }
-
-            const data = snapshot.val();
-
-            // Search for agreement by ID or by VIN/Serial Number
-            let foundAgreement: RentalAgreement | null = null;
-            let agreementId: string | null = null;
-
-            // First, try direct ID match
-            if (data[cleanedId]) {
-                foundAgreement = { ...data[cleanedId], id: cleanedId };
-                agreementId = cleanedId;
-            } else {
-                // Search by VIN or Serial Number
-                for (const [id, val] of Object.entries(data)) {
-                    const agreement = val as any;
-                    const vin = agreement.assetDetails?.vin;
-                    const serial = agreement.assetDetails?.serialNumber;
-
-                    if (vin === cleanedId || serial === cleanedId) {
-                        foundAgreement = { ...agreement, id };
-                        agreementId = id;
-                        break;
-                    }
-                }
-            }
+            const foundAgreement = await findAgreement(cleanedId);
 
             if (!foundAgreement) {
                 return {
@@ -131,11 +143,11 @@ export const rentalAgreementService = {
             // Validation passed - inspection exists and is allocated
             console.log(`✅ Inspection found and allocated to: ${workflow.technicianName || workflow.technicianId}`);
             return { valid: true, agreement: foundAgreement };
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error validating agreement:', error);
             return {
                 valid: false,
-                error: `Database error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                error: `Database error: ${error?.message || 'Unknown error'}`
             };
         }
     },
@@ -164,32 +176,53 @@ export const rentalAgreementService = {
                 return { success: true, offline: true };
             }
 
-            // Online Mode
-            const updates: any = {};
-            const workflowPath = `rentalAgreements/${agreementId}/inspectionWorkflow`;
+            // Online Mode: merge into agreement_data.inspectionWorkflow (same as the SRAM web app)
+            const { data: raRow, error: readError } = await supabase
+                .from(TABLE)
+                .select('agreement_data')
+                .eq('id', agreementId)
+                .single();
+            if (readError) throw readError;
 
-            updates[`${workflowPath}/status`] = passed ? 'Passed' : 'Failed';
-            updates[`${workflowPath}/completedAt`] = Date.now();
-            updates[`${workflowPath}/inspectionResults`] = {
-                passed,
-                notes,
-                items: inspectionItems
+            const agreementData = raRow?.agreement_data || {};
+            const updatedData = {
+                ...agreementData,
+                inspectionWorkflow: {
+                    ...(agreementData.inspectionWorkflow || {}),
+                    status: passed ? 'Passed' : 'Failed',
+                    completedAt: Date.now(),
+                    inspectionResults: {
+                        passed,
+                        notes,
+                        items: inspectionItems
+                    },
+                },
             };
 
-            await update(ref(realtimeDb), updates);
+            const { data: updated, error: updateError } = await supabase
+                .from(TABLE)
+                .update({ agreement_data: updatedData })
+                .eq('id', agreementId)
+                .select('id');
+            if (updateError) throw updateError;
+
+            // Row Level Security can silently block an update, so confirm a row changed
+            if (!updated || updated.length === 0) {
+                throw new Error('Rental agreement was not updated (not found or permission denied)');
+            }
 
             return { success: true };
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error updating inspection result:', error);
             return {
                 success: false,
-                error: `Failed to update database: ${error instanceof Error ? error.message : 'Unknown error'}`
+                error: `Failed to update database: ${error?.message || 'Unknown error'}`
             };
         }
     },
 
     /**
-     * Download all ALLOCATED inspections from Firebase and store locally
+     * Download all ALLOCATED inspections for this technician and store locally
      */
     async syncDownAllocatedInspections(userEmail: string): Promise<{ success: boolean; count: number; totalInDb: number }> {
         try {
@@ -199,36 +232,27 @@ export const rentalAgreementService = {
                 return { success: false, count: 0, totalInDb: 0 };
             }
 
-            const agreementsRef = ref(realtimeDb, 'rentalAgreements');
-            const snapshot = await get(agreementsRef);
+            const { data, error } = await supabase
+                .from(TABLE)
+                .select(COLUMNS)
+                .eq('agreement_data->inspectionWorkflow->>status', 'Allocated');
+            if (error) throw error;
 
-            if (!snapshot.exists()) {
-                await offlineStorage.saveAgreements([]);
-                return { success: true, count: 0, totalInDb: 0 };
-            }
+            const rows = data || [];
+            const totalInDb = rows.length;
+            const searchEmail = (userEmail || "").toLowerCase().trim();
+            const userId = (await offlineStorage.getUserId()).toLowerCase().trim();
 
-            const data = snapshot.val();
-            const allItems = Object.entries(data);
-            const totalInDb = allItems.length;
-            const allocatedAgreements: RentalAgreement[] = [];
+            const allocatedAgreements: RentalAgreement[] = rows
+                .map(mapRow)
+                .filter(agreement => {
+                    const workflow = agreement.inspectionWorkflow;
+                    const techEmail = (workflow?.technicianEmail || "").toLowerCase().trim();
+                    const techId = (workflow?.technicianId || "").toLowerCase().trim();
 
-            allItems.forEach(([key, value]: [string, any]) => {
-                const workflow = value.inspectionWorkflow;
-                if (!workflow) return;
-
-                const status = (workflow.status || "").toLowerCase();
-                const techEmail = (workflow.technicianEmail || "").toLowerCase().trim();
-                const techId = (workflow.technicianId || "").toLowerCase().trim();
-                const searchEmail = (userEmail || "").toLowerCase().trim();
-
-                // Match if status is 'allocated' AND email matches EITHER field (robustness)
-                if (status === 'allocated' && (techEmail === searchEmail || techId === searchEmail) && searchEmail !== "") {
-                    allocatedAgreements.push({
-                        ...value,
-                        id: key
-                    });
-                }
-            });
+                    // Match on technician email, or on the technician's user ID (robustness)
+                    return (searchEmail !== "" && techEmail === searchEmail) || (userId !== "" && techId === userId);
+                });
 
             await offlineStorage.saveAgreements(allocatedAgreements);
             return { success: true, count: allocatedAgreements.length, totalInDb };
@@ -240,7 +264,7 @@ export const rentalAgreementService = {
     },
 
     /**
-     * Upload locally completed inspections to Firebase
+     * Upload locally completed inspections to Supabase
      */
     async syncUpCompletedInspections(): Promise<{ success: boolean; count: number; errors: any[] }> {
         try {
@@ -254,18 +278,20 @@ export const rentalAgreementService = {
             const errors: any[] = [];
 
             for (const item of pending) {
-                try {
-                    // Re-use existing update logic
-                    await this.updateInspectionResult(
-                        item.agreementId,
-                        item.passed,
-                        item.notes,
-                        item.inspectionItems
-                    );
+                // Re-use existing update logic
+                const result = await this.updateInspectionResult(
+                    item.agreementId,
+                    item.passed,
+                    item.notes,
+                    item.inspectionItems
+                );
+
+                // Only treat as synced if it reached the server (not re-queued offline)
+                if (result.success && !result.offline) {
                     successIds.push(item.agreementId);
-                } catch (e) {
-                    console.error(`Failed to sync up inspection ${item.agreementId}:`, e);
-                    errors.push({ id: item.agreementId, error: e });
+                } else {
+                    console.error(`Failed to sync up inspection ${item.agreementId}:`, result.error);
+                    errors.push({ id: item.agreementId, error: result.error });
                 }
             }
 
@@ -289,4 +315,3 @@ export const rentalAgreementService = {
         return await offlineStorage.getAgreements();
     }
 };
-

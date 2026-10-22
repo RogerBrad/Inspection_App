@@ -5,8 +5,16 @@ import NetInfo from "@react-native-community/netinfo";
 import { useIsFocused } from '@react-navigation/native';
 import { offlineStorage } from '../services/offlineStorage';
 
-import { auth } from '../services/firebaseConfig';
-import { signOut } from 'firebase/auth';
+import { supabase } from '../services/supabaseClient';
+
+// The signed-in Supabase user, falling back to the locally stored technician (works offline)
+const getCurrentUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return {
+        userId: session?.user?.id || await offlineStorage.getUserId(),
+        userEmail: session?.user?.email || await offlineStorage.getUserEmail(),
+    };
+};
 
 const InspectionListScreen = ({ navigation }: any) => {
     const [inspections, setInspections] = useState<RentalAgreement[]>([]);
@@ -14,6 +22,7 @@ const InspectionListScreen = ({ navigation }: any) => {
     const [syncing, setSyncing] = useState(false);
     const [isConnected, setIsConnected] = useState<boolean | null>(true);
     const [currentUserId, setCurrentUserId] = useState<string>('');
+    const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
     const isFocused = useIsFocused();
 
     // Load initial data
@@ -23,15 +32,14 @@ const InspectionListScreen = ({ navigation }: any) => {
         });
 
         const init = async () => {
-            const userId = await offlineStorage.getUserId();
-            const userEmailFromStorage = await offlineStorage.getUserEmail();
+            const { userId, userEmail: emailToSync } = await getCurrentUser();
             setCurrentUserId(userId);
-            
+            setCurrentUserEmail(emailToSync);
+
             // Load what we have locally first for immediate UI
             await loadInspections();
-            
+
             // Then trigger a background sync to ensure data is fresh
-            const emailToSync = auth.currentUser?.email || userEmailFromStorage;
             if (emailToSync) {
                 console.log('InspectionListScreen: Performing auto-sync for:', emailToSync);
                 handleSync(true); 
@@ -46,9 +54,9 @@ const InspectionListScreen = ({ navigation }: any) => {
     useEffect(() => {
         if (isFocused) {
             const refresh = async () => {
-                const userId = auth.currentUser?.uid || await offlineStorage.getUserId();
-                const userEmail = auth.currentUser?.email || await offlineStorage.getUserEmail();
+                const { userId, userEmail } = await getCurrentUser();
                 setCurrentUserId(userId);
+                setCurrentUserEmail(userEmail);
                 await loadInspections();
             };
             refresh();
@@ -66,8 +74,8 @@ const InspectionListScreen = ({ navigation }: any) => {
                     style: "destructive",
                     onPress: async () => {
                         try {
-                            await signOut(auth);
-                            // Navigation handled by AppNavigator's onAuthStateChanged
+                            await supabase.auth.signOut({ scope: 'local' });
+                            // Navigation handled by AppNavigator's onAuthStateChange
                         } catch (error) {
                             console.error("Logout error:", error);
                         }
@@ -92,8 +100,7 @@ const InspectionListScreen = ({ navigation }: any) => {
 
         setSyncing(true);
         try {
-            const userId = auth.currentUser?.uid || await offlineStorage.getUserId();
-            const userEmail = auth.currentUser?.email || await offlineStorage.getUserEmail();
+            const { userId, userEmail } = await getCurrentUser();
             console.log('Sync: Starting sync for Email:', userEmail);
 
             if (!userEmail) {
@@ -114,7 +121,7 @@ const InspectionListScreen = ({ navigation }: any) => {
 
             let message = `Sync Complete.\n\n`;
             message += `User Email: ${userEmail}\n`;
-            message += `DB Total: ${downloadResult.totalInDb}\n`;
+            message += `Allocated in DB: ${downloadResult.totalInDb}\n`;
 
             if (uploadResult.count > 0) message += `Uploaded: ${uploadResult.count}\n`;
             if (downloadResult.count > 0) {
@@ -166,7 +173,7 @@ const InspectionListScreen = ({ navigation }: any) => {
             <View style={styles.header}>
                 <View>
                     <Text style={styles.title}>My Inspections</Text>
-                    <Text style={styles.subtitle}>{currentUserId || 'Technician'} | {auth.currentUser?.email || 'Syncing...'}</Text>
+                    <Text style={styles.subtitle}>{currentUserId || 'Technician'} | {currentUserEmail || 'Syncing...'}</Text>
                 </View>
                 <View style={styles.headerActions}>
                     <TouchableOpacity

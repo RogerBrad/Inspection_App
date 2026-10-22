@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert } from 'react-native';
-import { getDatabase, ref, get } from 'firebase/database';
+import { supabase } from '../services/supabaseClient';
 import { offlineStorage } from '../services/offlineStorage';
 
 const DebugScreen = () => {
@@ -27,38 +27,38 @@ const DebugScreen = () => {
     async function fetchDebugData() {
         setLoading(true);
         try {
-            const db = getDatabase();
-
             // Fetch rental agreements with allocated inspections
-            const raSnapshot = await get(ref(db, 'rentalAgreements'));
-            if (raSnapshot.exists()) {
-                const data = raSnapshot.val();
-                const allocated = Object.entries(data)
-                    .filter(([_, val]: [string, any]) =>
-                        val.inspectionWorkflow?.status === 'Allocated'
-                    )
-                    .map(([id, val]: [string, any]) => ({
-                        id,
-                        assetName: val.assetDetails?.assetName,
-                        serialNumber: val.assetDetails?.serialNumber,
-                        vin: val.assetDetails?.vin,
-                        technicianId: val.inspectionWorkflow?.technicianId,
-                        technicianName: val.inspectionWorkflow?.technicianName,
-                    }));
-                setAllocatedInspections(allocated);
-            }
+            const { data: raRows, error: raError } = await supabase
+                .from('rental_agreements')
+                .select('id, agreement_data')
+                .eq('agreement_data->inspectionWorkflow->>status', 'Allocated');
+            if (raError) throw raError;
+
+            const allocated = (raRows || []).map((row: any) => {
+                const val = row.agreement_data || {};
+                return {
+                    id: row.id,
+                    assetName: val.assetDetails?.assetName,
+                    serialNumber: val.assetDetails?.serialNumber,
+                    vin: val.assetDetails?.vin,
+                    technicianId: val.inspectionWorkflow?.technicianId,
+                    technicianName: val.inspectionWorkflow?.technicianName,
+                };
+            });
+            setAllocatedInspections(allocated);
 
             // Fetch users
-            const userSnapshot = await get(ref(db, 'User'));
-            if (userSnapshot.exists()) {
-                const userData = userSnapshot.val();
-                const userList = Object.entries(userData).map(([uid, val]: [string, any]) => ({
-                    uid,
-                    name: `${val.firstName || ''} ${val.surname || ''}`.trim(),
-                    email: val.email,
-                }));
-                setUsers(userList);
-            }
+            const { data: userRows, error: userError } = await supabase
+                .from('user_profiles')
+                .select('id, first_name, surname, email');
+            if (userError) throw userError;
+
+            const userList = (userRows || []).map((val: any) => ({
+                uid: val.id,
+                name: `${val.first_name || ''} ${val.surname || ''}`.trim(),
+                email: val.email,
+            }));
+            setUsers(userList);
         } catch (error) {
             console.error('Debug fetch error:', error);
             Alert.alert('Error', 'Failed to fetch debug data');
